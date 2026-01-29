@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Control Panel</title>
+  <link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+  <div class="admin-header">
+    <div class="container">
+      <h1>⚙️ Admin Control Panel</h1>
+      <nav>
+        <a href="/">View Store</a>
+      </nav>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="admin-content">
+      <!-- Recent Orders Section -->
+      <section class="section">
+        <h2>Recent Orders</h2>
+        <div id="orders-loading" class="loading">Loading orders...</div>
+        <div id="orders-error" class="error" style="display: none;"></div>
+        <div id="orders-list" class="orders-list"></div>
+      </section>
+
+      <!-- Products Section -->
+      <section class="section">
+        <h2>Products</h2>
+        <div class="products-controls">
+          <input type="text" id="product-search" placeholder="Search products..." class="search-input">
+          <button id="refresh-products" class="btn btn-secondary">Refresh</button>
+        </div>
+        <div id="products-loading" class="loading">Loading products...</div>
+        <div id="products-error" class="error" style="display: none;"></div>
+        <div id="products-list" class="products-list"></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Chatbot Toggle Button -->
+  <button id="chatbot-toggle" class="chatbot-toggle" aria-label="Open StorePilot">
+    <span class="chatbot-icon">💬</span>
+    <span class="chatbot-badge">StorePilot</span>
+  </button>
+
+  <!-- Chatbot Side Panel -->
+  <div id="chatbot-panel" class="chatbot-panel">
+    <div class="chatbot-header">
+      <div class="chatbot-title">
+        <span class="chatbot-icon-large">💬</span>
+        <div>
+          <h3>StorePilot</h3>
+          <p class="chatbot-tagline">Control your store with natural language.</p>
+        </div>
+      </div>
+      <button id="chatbot-close" class="chatbot-close" aria-label="Close StorePilot">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+    
+    <div id="chatbot-messages" class="chatbot-messages">
+      <div class="chatbot-welcome">
+        <div class="welcome-message">
+          <p>👋 Hello! I'm <strong>StorePilot</strong>, your AI assistant.</p>
+          <p>I can help you manage your store using natural language. Try asking me:</p>
+          <ul>
+            <li>"Cancel order ORD-1001"</li>
+            <li>"Change the price of SKU-001 to $49.99"</li>
+            <li>"Update product description"</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="chatbot-input-container">
+      <form id="chatbot-form" class="chatbot-form">
+        <input 
+          type="text" 
+          id="chatbot-input" 
+          class="chatbot-input" 
+          placeholder="Type your message..."
+          autocomplete="off"
+        />
+        <button type="submit" class="chatbot-send" aria-label="Send message">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Chatbot Overlay -->
+  <div id="chatbot-overlay" class="chatbot-overlay"></div>
+
+  <!-- Edit Product Modal -->
+  <div id="edit-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Edit Product</h2>
+        <button class="modal-close" id="close-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="edit-product-form">
+          <div class="form-group">
+            <label for="edit-name">Name</label>
+            <input type="text" id="edit-name" name="name" required>
+          </div>
+          <div class="form-group">
+            <label for="edit-description">Description</label>
+            <textarea id="edit-description" name="description" rows="4"></textarea>
+          </div>
+          <div class="form-group">
+            <label for="edit-short-description">Short Description</label>
+            <input type="text" id="edit-short-description" name="shortDescription">
+          </div>
+          <div class="form-group">
+            <label for="edit-status">Status</label>
+            <select id="edit-status" name="status">
+              <option value="active">Active</option>
+              <option value="draft">Draft</option>
+              <option value="archived">Archived</option>
+              <option value="discontinued">Discontinued</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="edit-price">Price (Default Variant)</label>
+            <input type="number" id="edit-price" name="price" step="0.01" min="0">
+          </div>
+          <div class="form-group">
+            <label for="edit-vendor">Vendor</label>
+            <input type="text" id="edit-vendor" name="vendor">
+          </div>
+          <div class="form-group">
+            <label for="edit-brand">Brand</label>
+            <input type="text" id="edit-brand" name="brand">
+          </div>
+          <div class="form-group">
+            <label for="edit-tags">Tags (comma-separated)</label>
+            <input type="text" id="edit-tags" name="tags" placeholder="tag1, tag2, tag3">
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" id="cancel-edit">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="/admin/admin.js"></script>
+</body>
+</html>
