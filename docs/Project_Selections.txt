@@ -1,0 +1,1087 @@
+==================================================
+1. Port Configuration:
+==================================================
+| Service             | Port  |
+| ------------------- | ----- |
+| UI (admin)          | 3000  |
+| Agent Service (ADK) | 3000  |
+| Backend API         | 5000  |
+| Ollama              | 11434 |
+
+URLs:
+- http://localhost:3000/admin        → Admin UI
+- http://localhost:3000/agent       → Agent Service
+- http://localhost:5000/api         → Backend API
+- http://localhost:11434            → Ollama
+
+Note: For prototype, Agent Service runs on same port 3000 as UI.
+
+UI calls Agent → Agent calls tools and API.
+
+
+==================================================
+2. Project Structure:
+==================================================
+ShopAgent/
+│
+├── data/
+│   ├── dynamic/
+│   │   ├── orders.json
+│   │   ├── products.json
+│   │   ├── workflow.state.json          # 🧠 Runtime state
+│   │   └── sessions.state.json          # 🧠 Chat memory
+│   │
+│   └── seed/
+│       └── ... (unchanged)
+│
+├── docs/
+│   ├── COMPLETE_PROJECT_DOCUMENTATION.md
+│   ├── Project_Selections.txt
+│   ├── state-model.md                   # 🆕
+│   ├── observability.md                 # 🆕
+│   └── agent-flow.md                    # 🆕
+│
+├── public/                              # UI (unchanged)
+│   └── ...
+│
+├── src/
+│   ├── __tests__/                       # (unchanged)
+│   │
+│   ├── routes/                          # REST APIs (unchanged)
+│   │   ├── orders.ts
+│   │   ├── products.ts
+│   │   └── promotions.ts
+│   │
+│   ├── agent/                           # 🤖 Agent Brain
+│   │   ├── admin.agent.ts
+│   │   ├── planner.ts
+│   │   ├── executor.ts
+│   │   ├── prompt.builder.ts
+│   │   └── context.manager.ts
+│   │
+│   ├── tools/                           # 🔧 PROMPT TOOLS + GUARDS
+│   │   ├── orders.tool.ts               # read/update + guards
+│   │   ├── products.tool.ts
+│   │   ├── promotions.tool.ts
+│   │   ├── validation.guard.ts          # schema + value checks
+│   │   ├── price.guard.ts               # outlier detection
+│   │   ├── transition.guard.ts          # status rules
+│   │   └── human.confirm.guard.ts       # HITL
+│   │
+│   ├── state/                           # 🧠 Strong Persistence
+│   │   ├── state.manager.ts
+│   │   ├── workflow.store.ts
+│   │   ├── session.store.ts
+│   │   └── state.types.ts
+│   │
+│   ├── observability/                   # 📊 Metrics + Tracing
+│   │   ├── metrics.ts
+│   │   ├── tracer.ts
+│   │   ├── logger.ts
+│   │   └── correlation.ts
+│   │
+│   ├── llm/                             # Ollama
+│   │   ├── ollama.client.ts
+│   │   ├── token.counter.ts
+│   │   └── model.config.ts
+│   │
+│   ├── types/                           # (unchanged)
+│   │
+│   ├── utils/                           # (keep storage + errors)
+│   │   ├── errors.ts
+│   │   └── storage.ts
+│   │
+│   ├── seed.ts
+│   └── server.ts
+│
+├── jest.config.js
+├── package.json
+├── README.md
+└── tsconfig.json
+
+
+==================================================
+3. Agent Architecture:
+==================================================
+One ADK agent service with 4 logical agents internally:
+
+ShopAgent (ADK Service)
+ ├── PlannerAgent
+ ├── ValidationAgent
+ ├── ExecutionAgent
+ └── ResponseAgent
+
+==================================================
+4. Agent Responsibilities:
+==================================================
+PlannerAgent:
+- Intent detection
+- Entity extraction
+- Normalize user input
+
+Examples:
+"Change price of PD-1067 to $67"
+→ UPDATE_PRODUCT_PRICE
+→ sku=PD-1067
+→ newPrice=67
+
+ValidationAgent:
+- Schema validation
+- Business rules
+- Guardrails
+- Risk detection
+
+Examples:
+- SKU exists?
+- Price >= 0?
+- Price deviation threshold?
+- Order status transition valid?
+
+ExecutionAgent:
+- Calls backend APIs
+- Updates JSON data
+- Handles atomic writes
+
+ResponseAgent:
+- User-friendly messages
+- Confirmation prompts
+- Error explanations
+
+
+==================================================
+5. Agent Prompts (Concise):
+==================================================
+PlannerAgent Prompt:
+You are a PlannerAgent for an e-commerce admin system. Extract intent and entities from user messages.
+
+Your task:
+1. Identify the intent (UPDATE_PRODUCT_PRICE, CANCEL_ORDER, UPDATE_ORDER_STATUS, etc.)
+2. Extract entities (sku, orderNumber, price, status, etc.)
+3. Return JSON: {"intent": "...", "entities": {...}, "confidence": 0.0-1.0}
+
+Supported intents:
+- UPDATE_PRODUCT_PRICE
+- UPDATE_PRODUCT_DESCRIPTION
+- CANCEL_ORDER
+- UPDATE_ORDER_STATUS
+- SHOW_PRODUCT_INFO
+- SHOW_ORDER_INFO
+
+Example:
+Input: "Change price of HP-BLK-001 to $320"
+Output: {"intent": "UPDATE_PRODUCT_PRICE", "entities": {"sku": "HP-BLK-001", "newPrice": 320}, "confidence": 0.95}
+
+
+ValidationAgent Prompt:
+You are a ValidationAgent. Validate business rules and detect risks.
+
+Your task:
+1. Check if entities exist (SKU, orderNumber)
+2. Validate business rules (price >= 0, valid status transitions)
+3. Calculate risk flags (PRICE_OUTLIER if deviation > 40%)
+4. Return JSON: {"valid": true/false, "riskFlag": "...", "errors": [...]}
+
+Guardrails:
+- Price deviation > 40% → PRICE_OUTLIER
+- Price < 0 → INVALID_PRICE
+- SKU not found → SKU_NOT_FOUND
+- Invalid status transition → INVALID_TRANSITION
+- Order already shipped → CANNOT_CANCEL_SHIPPED
+
+Example:
+Input: {"intent": "UPDATE_PRODUCT_PRICE", "entities": {"sku": "HP-BLK-001", "newPrice": 67}, "oldPrice": 890}
+Output: {"valid": false, "riskFlag": "PRICE_OUTLIER", "errors": ["Price deviation 92% exceeds 40% threshold"]}
+
+
+ExecutionAgent Prompt:
+You are an ExecutionAgent. Execute validated actions via API calls.
+
+Your task:
+1. Map intent to API endpoint
+2. Construct API request payload
+3. Call backend API (http://localhost:5000/api)
+4. Handle errors and retries
+5. Return JSON: {"success": true/false, "data": {...}, "error": "..."}
+
+API Endpoints:
+- UPDATE_PRODUCT_PRICE → PUT /api/v1/products/{sku}/price
+- CANCEL_ORDER → PUT /api/v1/orders/{orderNumber}/cancel
+- UPDATE_ORDER_STATUS → PUT /api/v1/orders/{orderNumber}/status
+
+Example:
+Input: {"intent": "UPDATE_PRODUCT_PRICE", "entities": {"sku": "HP-BLK-001", "newPrice": 320}, "confirmed": true}
+Output: {"success": true, "data": {"sku": "HP-BLK-001", "oldPrice": 299.99, "newPrice": 320}}
+
+
+ResponseAgent Prompt:
+You are a ResponseAgent. Generate user-friendly responses.
+
+Your task:
+1. Format success messages clearly
+2. Create confirmation prompts for risky actions
+3. Explain errors in plain language
+4. Include relevant details (order numbers, SKUs, prices)
+
+Response types:
+- Success: "✅ Successfully updated price of HP-BLK-001 from $299.99 to $320"
+- Confirmation needed: "⚠️ Large price change detected (92% drop). Please confirm: 'CONFIRM price change for HP-BLK-001 to $67'"
+- Error: "❌ Error: Product SKU-9999 not found. Please check the SKU and try again."
+
+Example:
+Input: {"success": true, "intent": "UPDATE_PRODUCT_PRICE", "data": {"sku": "HP-BLK-001", "oldPrice": 299.99, "newPrice": 320}}
+Output: "✅ Successfully updated the price of Premium Wireless Headphones (HP-BLK-001) from $299.99 to $320."
+
+
+Agent Output Examples:
+======================
+PlannerAgent Output:
+{
+  "intent": "UPDATE_PRODUCT_PRICE",
+  "entities": {
+    "sku": "HP-BLK-001",
+    "newPrice": 320
+  },
+  "confidence": 0.95,
+  "timestamp": "2026-01-29T10:11:00.045Z",
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788"
+}
+
+ValidationAgent Output (Success):
+{
+  "valid": true,
+  "riskFlag": null,
+  "errors": [],
+  "entityExists": true,
+  "businessRulesPassed": true,
+  "timestamp": "2026-01-29T10:11:00.120Z",
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788"
+}
+
+ValidationAgent Output (Price Outlier):
+{
+  "valid": false,
+  "riskFlag": "PRICE_OUTLIER",
+  "errors": ["Price deviation 92% exceeds 40% threshold"],
+  "entityExists": true,
+  "businessRulesPassed": false,
+  "oldPrice": 890,
+  "newPrice": 67,
+  "deviationPercent": 92.47,
+  "requiresConfirmation": true,
+  "timestamp": "2026-01-29T10:11:00.120Z",
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788"
+}
+
+ValidationAgent Output (SKU Not Found):
+{
+  "valid": false,
+  "riskFlag": "SKU_NOT_FOUND",
+  "errors": ["Product with SKU SKU-9999 not found"],
+  "entityExists": false,
+  "businessRulesPassed": false,
+  "requiresConfirmation": false,
+  "timestamp": "2026-01-29T10:11:00.120Z",
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788"
+}
+
+ExecutionAgent Output (Success):
+{
+  "success": true,
+  "data": {
+    "sku": "HP-BLK-001",
+    "oldPrice": 299.99,
+    "newPrice": 320,
+    "productName": "Premium Wireless Headphones",
+    "updatedAt": "2026-01-29T10:11:00.280Z"
+  },
+  "error": null,
+  "apiResponse": {
+    "statusCode": 200,
+    "message": "Product price updated successfully"
+  },
+  "timestamp": "2026-01-29T10:11:00.280Z",
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788"
+}
+
+ExecutionAgent Output (API Error):
+{
+  "success": false,
+  "data": null,
+  "error": "API request failed: Product not found",
+  "apiResponse": {
+    "statusCode": 404,
+    "message": "Product with SKU HP-BLK-999 not found"
+  },
+  "timestamp": "2026-01-29T10:11:00.280Z",
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788"
+}
+
+ResponseAgent Output (Success):
+"✅ Successfully updated the price of Premium Wireless Headphones (HP-BLK-001) from $299.99 to $320."
+
+ResponseAgent Output (Confirmation Needed):
+"⚠️ This is a large price change (from $890 → $67, 92% drop).
+
+Please confirm:
+'CONFIRM price change for HP-BLK-001 to $67'"
+
+ResponseAgent Output (Error):
+"❌ Error: Product SKU-9999 not found. Please check the SKU and try again."
+
+ResponseAgent Output (Order Cancelled):
+"✅ Successfully cancelled order ORD-1001. The order status has been updated to 'cancelled'."
+
+ResponseAgent Output (Invalid Transition):
+"❌ Error: Cannot cancel order ORD-2001. This order has already been shipped and cannot be cancelled."
+
+
+==================================================
+6. System Flow:
+==================================================
+Admin UI
+   ↓
+Agent Service (Planner → Validator → Executor → Responder)
+   ↓
+Backend API (/api)
+   ↓
+JSON Storage
+
+Every request has:
+- traceId
+- workflowId
+- sessionId
+
+
+==================================================
+7. Customer View:
+==================================================
+- URL: http://localhost:3000/
+- This is only read-only page
+- Customer can view the products and order history
+          - Read-only storefront for browsing products
+- Included for realism and data generation
+
+
+==================================================
+8. Admin UI:
+==================================================
+- URL: http://localhost:3000/admin
+- This is the admin page where admin can see the recent orders
+           - Displays:
+           - Recent orders
+           - Product catalog
+           - Allows:
+               - Updating order status
+               - Editing product details (name, description, price)
+- You will extend this page by embedding a chatbot interface that allows an administrator to manage the store using natural language.
+
+
+==================================================
+9. Backend API:
+==================================================
+- Base URL: http://localhost:5000/api
+- Full API documentation available at http://localhost:5000/api
+- We can extend this API by keeping the "http://localhost:5000/api/v1/orders" where we can modify and basically interact with agents and modify the order details
+- We can extend this API by keeping the products information on "http://localhost:5000/api/v1/products" on this endpoints basically what we do is we can change the product info through the agents
+- Chat endpoint: http://localhost:5000/api/chat
+
+
+==================================================
+10. Model Selected:
+==================================================
+- Model: ollama pull qwen3-coder:30b
+- Source: https://ollama.com/library/qwen3-coder:30b (19GB)
+- I downloaded the latest AI qwen3:30b parameter model because it supports the thinking and coder activities and especially it is designed for agent workflows
+
+
+==================================================
+11. Traceability Model (Mandatory):
+==================================================
+Every request generates:
+- traceId = uuid()
+- workflowId = `SHOP-${Date.now()}`
+- sessionId = browser session
+- workflowTimestampStart = ISO timestamp when workflow begins
+- workflowTimestampEnd = ISO timestamp when workflow completes
+
+Propagated across:
+UI → Agent → API → Storage → Logs
+
+Audit Fields:
+- userId (admin identifier)
+- action (intent/operation performed)
+- entityType (product, order, etc.)
+- entityId (SKU, orderNumber, etc.)
+- oldValue (before change)
+- newValue (after change)
+- status (success, failed, pending_confirmation)
+- errorMessage (if failed)
+
+Example Trace Log:
+{
+  "traceId": "t-91283",
+  "workflowId": "SHOP-77822",
+  "sessionId": "sess-abc123",
+  "workflowTimestampStart": "2026-01-29T10:11:00.000Z",
+  "workflowTimestampEnd": "2026-01-29T10:11:00.340Z",
+  "agent": "ValidationAgent",
+  "intent": "UPDATE_PRODUCT_PRICE",
+  "userId": "admin",
+  "action": "UPDATE_PRODUCT_PRICE",
+  "entityType": "product",
+  "entityId": "PD-1067",
+  "sku": "PD-1067",
+  "oldPrice": 890,
+  "newPrice": 67,
+  "oldValue": 890,
+  "newValue": 67,
+  "riskFlag": "PRICE_OUTLIER",
+  "status": "pending_confirmation",
+  "timestamp": "2026-01-29T10:11:00Z"
+}
+
+
+==================================================
+12. Metrics - What to Capture and Where to Store:
+==================================================
+Where to Store Metrics:
+For assignment:
+- /metrics/metrics.json (append)
+- Console logs
+
+Optional bonus:
+- SQLite
+
+Workflow Metrics:
+| Metric           | Example   |
+| ---------------- | --------- |
+| workflow_id      | SHOP-9912 |
+| trace_id         | t-111     |
+| total_latency_ms | 340       |
+| success          | true      |
+| retries          | 0         |
+| agent_steps      | 4         |
+
+LLM Metrics:
+| Metric            | Example |
+| ----------------- | ------- |
+| prompt_tokens     | 412     |
+| completion_tokens | 91      |
+| context_usage_pct | 32%     |
+| latency_ms        | 220     |
+| retry_count       | 0       |
+
+Agent Metrics:
+| Metric                     | Example       |
+| -------------------------- | ------------- |
+| intent_confidence          | 0.94          |
+| schema_validation_failures | 0             |
+| guardrail_triggers         | PRICE_OUTLIER |
+| tool_calls                 | 1             |
+
+API Metrics:
+| Metric         | Example |
+| -------------- | ------- |
+| api_latency_ms | 41      |
+| file_write_ms  | 12      |
+| errors         | 0       |
+
+MetricsEvent Schema:
+File: /metrics/metrics.jsonl   (append only)
+
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MetricsEvent",
+  "type": "object",
+  "required": [
+    "traceId",
+    "workflowId",
+    "sessionId",
+    "timestamp",
+    "layer",
+    "metrics"
+  ],
+  "properties": {
+    "traceId": { "type": "string" },
+    "workflowId": { "type": "string" },
+    "sessionId": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "layer": {
+      "type": "string",
+      "enum": ["WORKFLOW", "PLANNER_AGENT", "VALIDATION_AGENT", "EXECUTION_AGENT", "RESPONSE_AGENT", "LLM", "API"]
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "workflow": {
+          "type": "object",
+          "properties": {
+            "workflow_id": { "type": "string" },
+            "trace_id": { "type": "string" },
+            "total_latency_ms": { "type": "number" },
+            "success": { "type": "boolean" },
+            "retries": { "type": "number" },
+            "agent_steps": { "type": "number" },
+            "workflowTimestampStart": { "type": "string", "format": "date-time" },
+            "workflowTimestampEnd": { "type": "string", "format": "date-time" }
+          }
+        },
+        "plannerAgent": {
+          "type": "object",
+          "properties": {
+            "timestampStart": { "type": "string", "format": "date-time" },
+            "timestampCompleted": { "type": "string", "format": "date-time" },
+            "latency_ms": { "type": "number" },
+            "intent": { "type": "string" },
+            "intent_confidence": { "type": "number" },
+            "entities_extracted": { "type": "number" },
+            "llm_calls": { "type": "number" },
+            "errors": { "type": "number" }
+          }
+        },
+        "validationAgent": {
+          "type": "object",
+          "properties": {
+            "timestampStart": { "type": "string", "format": "date-time" },
+            "timestampCompleted": { "type": "string", "format": "date-time" },
+            "latency_ms": { "type": "number" },
+            "schema_validation_failures": { "type": "number" },
+            "guardrail_triggers": { "type": "array", "items": { "type": "string" } },
+            "risk_flags": { "type": "array", "items": { "type": "string" } },
+            "validation_passed": { "type": "boolean" },
+            "errors": { "type": "number" }
+          }
+        },
+        "executionAgent": {
+          "type": "object",
+          "properties": {
+            "timestampStart": { "type": "string", "format": "date-time" },
+            "timestampCompleted": { "type": "string", "format": "date-time" },
+            "latency_ms": { "type": "number" },
+            "tool_calls": { "type": "number" },
+            "api_calls": { "type": "number" },
+            "api_success": { "type": "boolean" },
+            "data_updated": { "type": "boolean" },
+            "errors": { "type": "number" }
+          }
+        },
+        "responseAgent": {
+          "type": "object",
+          "properties": {
+            "timestampStart": { "type": "string", "format": "date-time" },
+            "timestampCompleted": { "type": "string", "format": "date-time" },
+            "latency_ms": { "type": "number" },
+            "response_type": { "type": "string", "enum": ["success", "confirmation", "error"] },
+            "message_length": { "type": "number" },
+            "errors": { "type": "number" }
+          }
+        },
+        "llm": {
+          "type": "object",
+          "properties": {
+            "prompt_tokens": { "type": "number" },
+            "completion_tokens": { "type": "number" },
+            "total_tokens": { "type": "number" },
+            "context_usage_pct": { "type": "number" },
+            "latency_ms": { "type": "number" },
+            "retry_count": { "type": "number" },
+            "model": { "type": "string" }
+          }
+        },
+        "api": {
+          "type": "object",
+          "properties": {
+            "api_latency_ms": { "type": "number" },
+            "file_write_ms": { "type": "number" },
+            "endpoint": { "type": "string" },
+            "method": { "type": "string" },
+            "status_code": { "type": "number" },
+            "errors": { "type": "number" }
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
+
+Example Metrics Entries:
+
+Workflow Metric:
+{
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788",
+  "sessionId": "sess-abc123",
+  "timestamp": "2026-01-29T10:11:00.340Z",
+  "layer": "WORKFLOW",
+  "metrics": {
+    "workflow": {
+      "workflow_id": "SHOP-7788",
+      "trace_id": "t-101",
+      "total_latency_ms": 340,
+      "success": true,
+      "retries": 0,
+      "agent_steps": 4,
+      "workflowTimestampStart": "2026-01-29T10:11:00.000Z",
+      "workflowTimestampEnd": "2026-01-29T10:11:00.340Z"
+    }
+  }
+}
+
+PlannerAgent Metric:
+{
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788",
+  "sessionId": "sess-abc123",
+  "timestamp": "2026-01-29T10:11:00.045Z",
+  "layer": "PLANNER_AGENT",
+  "metrics": {
+    "plannerAgent": {
+      "timestampStart": "2026-01-29T10:11:00.000Z",
+      "timestampCompleted": "2026-01-29T10:11:00.045Z",
+      "latency_ms": 45,
+      "intent": "UPDATE_PRODUCT_PRICE",
+      "intent_confidence": 0.94,
+      "entities_extracted": 2,
+      "llm_calls": 1,
+      "errors": 0
+    },
+    "llm": {
+      "prompt_tokens": 412,
+      "completion_tokens": 91,
+      "total_tokens": 503,
+      "context_usage_pct": 32,
+      "latency_ms": 40,
+      "retry_count": 0,
+      "model": "qwen3-coder:30b"
+    }
+  }
+}
+
+ValidationAgent Metric:
+{
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788",
+  "sessionId": "sess-abc123",
+  "timestamp": "2026-01-29T10:11:00.120Z",
+  "layer": "VALIDATION_AGENT",
+  "metrics": {
+    "validationAgent": {
+      "timestampStart": "2026-01-29T10:11:00.045Z",
+      "timestampCompleted": "2026-01-29T10:11:00.120Z",
+      "latency_ms": 75,
+      "schema_validation_failures": 0,
+      "guardrail_triggers": ["PRICE_OUTLIER"],
+      "risk_flags": ["PRICE_OUTLIER"],
+      "validation_passed": false,
+      "errors": 0
+    }
+  }
+}
+
+ExecutionAgent Metric:
+{
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788",
+  "sessionId": "sess-abc123",
+  "timestamp": "2026-01-29T10:11:00.280Z",
+  "layer": "EXECUTION_AGENT",
+  "metrics": {
+    "executionAgent": {
+      "timestampStart": "2026-01-29T10:11:00.120Z",
+      "timestampCompleted": "2026-01-29T10:11:00.280Z",
+      "latency_ms": 160,
+      "tool_calls": 1,
+      "api_calls": 1,
+      "api_success": true,
+      "data_updated": true,
+      "errors": 0
+    },
+    "api": {
+      "api_latency_ms": 41,
+      "file_write_ms": 12,
+      "endpoint": "/api/v1/products/HP-BLK-001/price",
+      "method": "PUT",
+      "status_code": 200,
+      "errors": 0
+    }
+  }
+}
+
+ResponseAgent Metric:
+{
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788",
+  "sessionId": "sess-abc123",
+  "timestamp": "2026-01-29T10:11:00.340Z",
+  "layer": "RESPONSE_AGENT",
+  "metrics": {
+    "responseAgent": {
+      "timestampStart": "2026-01-29T10:11:00.280Z",
+      "timestampCompleted": "2026-01-29T10:11:00.340Z",
+      "latency_ms": 60,
+      "response_type": "success",
+      "message_length": 87,
+      "errors": 0
+    }
+  }
+}
+
+LLM Metric (Standalone):
+{
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788",
+  "sessionId": "sess-abc123",
+  "timestamp": "2026-01-29T10:11:00.085Z",
+  "layer": "LLM",
+  "metrics": {
+    "llm": {
+      "prompt_tokens": 412,
+      "completion_tokens": 91,
+      "total_tokens": 503,
+      "context_usage_pct": 32,
+      "latency_ms": 220,
+      "retry_count": 0,
+      "model": "qwen3-coder:30b"
+    }
+  }
+}
+
+API Metric (Standalone):
+{
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788",
+  "sessionId": "sess-abc123",
+  "timestamp": "2026-01-29T10:11:00.161Z",
+  "layer": "API",
+  "metrics": {
+    "api": {
+      "api_latency_ms": 41,
+      "file_write_ms": 12,
+      "endpoint": "/api/v1/products/HP-BLK-001/price",
+      "method": "PUT",
+      "status_code": 200,
+      "errors": 0
+    }
+  }
+}
+
+
+==================================================
+13. Prompt Registry (Versioned):
+==================================================
+Create:
+/prompts/
+   planner.v1.txt
+   planner.v2.txt
+
+planner.v1 (Simple):
+- Extract intent
+- Extract entities
+- JSON output only
+
+planner.v2 (Improved):
+Adds:
+- Confidence score
+- Ambiguity detection
+- Missing field detection
+
+Why Version Prompts:
+- Reproducibility
+- Rollback
+- A/B testing
+- Auditability
+
+In code:
+const ACTIVE_PROMPT = "planner.v2";
+
+
+==================================================
+14. Guardrails (Business + AI):
+==================================================
+Price Outlier Guardrail:
+Rule:
+If |newPrice - oldPrice| / oldPrice > 40% → Require confirmation
+
+Example:
+Old price = 890
+New price = 67
+Deviation = 92%
+→ BLOCK + Ask confirmation
+
+Agent Response:
+⚠️ This is a large price change (from $890 → $67, 92% drop).
+
+Please confirm:
+"CONFIRM price change for PD-1067 to $67"
+
+Product Guardrails:
+| Rule                  | Action             |
+| --------------------- | ------------------ |
+| SKU not found         | Reject             |
+| price < 0             | Reject             |
+| price < costPrice     | Warn               |
+| price deviation > 40% | Human confirmation |
+| product inactive      | Reject             |
+| Description length limit | Reject (if exceeds) |
+| Status active only    | Reject (if inactive) |
+
+Order Guardrails:
+| Rule                      | Action |
+| ------------------------- | ------ |
+| Order not found           | Reject |
+| Invalid status transition | Reject |
+| Already shipped → cancel  | Reject |
+
+Valid Order Transitions:
+- pending → shipped
+- pending → cancelled
+- shipped → delivered
+
+Cannot cancel shipped orders.
+
+LLM Guardrails:
+| Rule               | Action     |
+| ------------------ | ---------- |
+| JSON parse fails   | Retry once |
+| Schema invalid     | Reject     |
+| Hallucinated field | Reject     |
+
+
+==================================================
+15. Human-in-the-Loop Flow (Price Outlier):
+==================================================
+Guardrail Rule:
+ABS(newPrice - oldPrice) / oldPrice > 40%
+
+Example:
+Old price = 890
+New price = 67
+Deviation = 92%  → BLOCK
+
+Flow:
+User Request
+   ↓
+Planner extracts intent
+   ↓
+Validator detects PRICE_OUTLIER
+   ↓
+State saved with pendingConfirmation = true
+   ↓
+Agent responds:
+   "Please confirm price change"
+   ↓
+User confirms:
+   "CONFIRM price change for PD-1067 to $67"
+   ↓
+Agent loads state
+   ↓
+Executes update
+
+
+==================================================
+16. Possible Admin Questions (Based on Data):
+==================================================
+Products:
+✔ Change price
+✔ Update description
+✔ Show product info
+✔ Check inventory level
+✔ Check category
+✔ Show promotions applied
+
+Orders:
+✔ Cancel order
+✔ Mark shipped
+✔ Show order details
+✔ Check shipment status
+✔ View line items
+
+Promotions (Optional):
+✔ Activate promotion
+✔ Disable promotion
+✔ Check usage
+
+
+==================================================
+17. Success Paths:
+==================================================
+Example: Price Update (Normal):
+Admin → "Change price of HP-BLK-001 to $320"
+Validation → OK (within threshold)
+Execution → Update JSON
+Response → Success confirmation
+Metrics → Logged
+
+Example: Cancel Order:
+Admin → "Cancel order ORD-1001"
+Validation → status = pending
+Execution → Update status
+Response → Success
+
+
+==================================================
+18. Failure Paths (Edge Cases):
+==================================================
+SKU Not Found:
+"Change price of SKU-9999 to $50"
+→ Product not found
+
+Negative Price:
+"Change price of SKU-001 to -10"
+→ Validation error
+
+Invalid Order Transition:
+"Cancel shipped order ORD-2001"
+→ Not allowed
+
+Large Price Outlier (Human Confirmation):
+"Change price of PD-1067 to $67"
+→ Block + ask confirmation
+
+LLM Output Invalid:
+LLM call → Schema invalid → Retry once →
+Fail → Fallback response
+
+
+==================================================
+19. Edge Case Flow Matrix:
+==================================================
+1. Price Outlier (Human Loop):
+Request → Validator detects outlier → Save state →
+Ask confirmation → Wait → Confirm → Execute
+
+2. SKU Not Found:
+Request → Validator fails → Error response → END
+
+3. Negative Price:
+Request → Validator fails → Error response → END
+
+4. Order Already Shipped:
+Request → Validator fails → Explain restriction → END
+
+5. LLM Output Invalid:
+LLM call → Schema invalid → Retry once →
+Fail → Fallback response
+
+
+==================================================
+20. State Persistence Strategy:
+==================================================
+For assignment:
+In-memory Map + JSON snapshot
+
+Store:
+- sessionId
+- pendingConfirmation
+- lastIntent
+- pendingPayload
+
+File: /state/workflow_state.json
+
+WorkflowState Schema:
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WorkflowState",
+  "type": "object",
+  "required": [
+    "sessionId",
+    "workflowId",
+    "traceId",
+    "status",
+    "updatedAt"
+  ],
+  "properties": {
+    "sessionId": { "type": "string" },
+    "workflowId": { "type": "string" },
+    "traceId": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["IDLE", "PENDING_CONFIRMATION", "EXECUTING", "COMPLETED", "FAILED"]
+    },
+    "pendingAction": {
+      "type": ["object", "null"],
+      "properties": {
+        "intent": { "type": "string" },
+        "entity": { "type": "object" },
+        "riskFlag": { "type": "string" },
+        "originalValue": { "type": "number" },
+        "requestedValue": { "type": "number" }
+      }
+    },
+    "conversationSummary": { "type": "string" },
+    "metricsSnapshot": {
+      "type": "object",
+      "properties": {
+        "llmTokens": { "type": "number" },
+        "latencyMs": { "type": "number" }
+      }
+    },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  }
+}
+
+
+==================================================
+21. Workflow State Machine:
+==================================================
+IDLE
+  ↓
+EXECUTING
+  ↓
+PENDING_CONFIRMATION (optional)
+  ↓
+EXECUTING
+  ↓
+COMPLETED
+  ↓
+IDLE
+
+Failure goes to:
+FAILED → IDLE
+
+
+==================================================
+22. Folder Additions:
+==================================================
+/metrics
+/prompts
+/state
+/logs
+
+
+==================================================
+23. Development Phase Checklist:
+==================================================
+Phase 1 – Infrastructure:
+✅ Agent service skeleton
+✅ State store module
+✅ Metrics logger
+✅ Trace ID middleware
+
+Phase 2 – Agent Core:
+✅ Planner prompt
+✅ Validation rules
+✅ Guardrail logic
+✅ Tool registry
+
+Phase 3 – Human Loop:
+✅ Pending state persistence
+✅ Confirmation detection
+✅ Resume execution
+
+Phase 4 – Observability:
+✅ Metrics append
+✅ Trace logs
+✅ Error logs
+
+Phase 5 – Tests:
+✅ Guardrail tests
+✅ Confirmation tests
+✅ API tests
