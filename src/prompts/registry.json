@@ -1,0 +1,79 @@
+{
+  "version": "1.0.0",
+  "lastModified": "2026-01-29T00:00:00.000Z",
+  "activePrompts": {
+    "planner": "v1",
+    "validation": "v1",
+    "execution": "v1",
+    "response": "v1",
+    "workflow": "v1"
+  },
+  "prompts": {
+    "planner": {
+      "v1": {
+        "file": "v1/planner.txt",
+        "description": "Simple planner - extracts intent and entities only",
+        "createdAt": "2026-01-29T00:00:00.000Z",
+        "isActive": true
+      },
+      "v2": {
+        "file": "v2/planner.txt",
+        "description": "Improved planner - to be defined",
+        "createdAt": "2026-01-29T00:00:00.000Z"
+      }
+    },
+    "validation": {
+      "v1": {
+        "file": "v1/validation.txt",
+        "description": "Validation agent prompt - business rules and risk detection",
+        "createdAt": "2026-01-29T00:00:00.000Z",
+        "isActive": true
+      },
+      "v2": {
+        "file": "v2/validation.txt",
+        "description": "Enhanced validation - to be defined",
+        "createdAt": "2026-01-29T00:00:00.000Z"
+      }
+    },
+    "execution": {
+      "v1": {
+        "file": "v1/execution.txt",
+        "description": "Execution agent prompt - API calls and data updates",
+        "createdAt": "2026-01-29T00:00:00.000Z",
+        "isActive": true
+      },
+      "v2": {
+        "file": "v2/execution.txt",
+        "description": "Enhanced execution - to be defined",
+        "createdAt": "2026-01-29T00:00:00.000Z"
+      }
+    },
+    "response": {
+      "v1": {
+        "file": "v1/response.txt",
+        "description": "Basic response formatter with success/error/confirmation messages",
+        "createdAt": "2026-01-29T00:00:00.000Z",
+        "isActive": true
+      },
+      "v2": {
+        "file": "v2/response.txt",
+        "description": "Enhanced response - to be defined",
+        "createdAt": "2026-01-29T00:00:00.000Z"
+      }
+    },
+    "workflow": {
+      "v1": {
+        "file": "v1/workflow.txt",
+        "description": "Workflow agent prompt - orchestration and state management",
+        "createdAt": "2026-01-29T00:00:00.000Z",
+        "isActive": true
+      },
+      "v2": {
+        "file": "v2/workflow.txt",
+        "description": "Enhanced workflow - to be defined",
+        "createdAt": "2026-01-29T00:00:00.000Z"
+      }
+    }
+  }
+}
+

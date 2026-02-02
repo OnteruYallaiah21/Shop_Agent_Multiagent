@@ -64,6 +64,21 @@
       </button>
     </div>
     
+    <!-- LLM Provider Selection inside Chatbot -->
+    <div class="chatbot-llm-provider">
+      <label class="chatbot-llm-label">AI Provider:</label>
+      <div class="llm-toggle-group">
+        <button id="llm-local" class="llm-toggle-btn active" data-provider="local" title="Local LLM (Ollama)">
+          <span class="llm-toggle-icon">🖥️</span>
+          <span class="llm-toggle-text">Ollama</span>
+        </button>
+        <button id="llm-premium" class="llm-toggle-btn" data-provider="premium" title="Premium AI Server (Gemini)">
+          <span class="llm-toggle-icon">☁️</span>
+          <span class="llm-toggle-text">Gemini</span>
+        </button>
+      </div>
+    </div>
+    
     <div id="chatbot-messages" class="chatbot-messages">
       <div class="chatbot-welcome">
         <div class="welcome-message">

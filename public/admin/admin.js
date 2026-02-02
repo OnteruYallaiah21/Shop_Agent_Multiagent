@@ -239,6 +239,9 @@ function escapeHtml(text) {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', () => {
+  // Initialize LLM provider selection
+  initLLMProviderSelection();
+  
   // Load initial data
   loadRecentOrders();
   loadProducts();
@@ -296,6 +299,77 @@ async function updateOrderStatus(orderId, newStatus) {
 // Make functions available globally
 window.editProduct = editProduct;
 window.updateOrderStatus = updateOrderStatus;
+window.getCurrentLLMProvider = getCurrentLLMProvider;
+
+// ==================== LLM Provider Selection ====================
+
+let currentLLMProvider = 'local'; // Default to local LLM
+
+// Initialize LLM provider selection
+function initLLMProviderSelection() {
+  // Load saved preference from localStorage
+  const savedProvider = localStorage.getItem('llmProvider') || 'local';
+  setLLMProvider(savedProvider);
+  
+  // Add event listeners to toggle buttons
+  const localBtn = document.getElementById('llm-local');
+  const premiumBtn = document.getElementById('llm-premium');
+  
+  if (localBtn) {
+    localBtn.addEventListener('click', () => {
+      setLLMProvider('local');
+    });
+  }
+  
+  if (premiumBtn) {
+    premiumBtn.addEventListener('click', () => {
+      setLLMProvider('premium');
+    });
+  }
+}
+
+// Set LLM provider (only one can be active at a time)
+function setLLMProvider(provider) {
+  if (provider !== 'local' && provider !== 'premium') {
+    console.error('Invalid LLM provider:', provider);
+    return;
+  }
+  
+  currentLLMProvider = provider;
+  
+  // Update UI - ensure only one is active
+  const localBtn = document.getElementById('llm-local');
+  const premiumBtn = document.getElementById('llm-premium');
+  
+  if (provider === 'local') {
+    // Enable local, disable premium
+    localBtn.classList.add('active');
+    localBtn.disabled = false;
+    premiumBtn.classList.remove('active');
+    premiumBtn.disabled = false; // Keep enabled so user can click to switch
+  } else {
+    // Enable premium, disable local
+    premiumBtn.classList.add('active');
+    premiumBtn.disabled = false;
+    localBtn.classList.remove('active');
+    localBtn.disabled = false; // Keep enabled so user can click to switch
+  }
+  
+  // Save preference to localStorage
+  localStorage.setItem('llmProvider', provider);
+  
+  // Log the change (can be replaced with API call later)
+  console.log('LLM Provider changed to:', provider);
+  
+  // TODO: Send preference to backend/agent service
+  // This can be implemented when backend is ready
+  // Example: fetch('/api/llm-provider', { method: 'POST', body: JSON.stringify({ provider }) });
+}
+
+// Get current LLM provider
+function getCurrentLLMProvider() {
+  return currentLLMProvider;
+}
 
 // ==================== Chatbot UI Functionality ====================
 
