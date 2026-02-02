@@ -5,7 +5,7 @@
 | ------------------- | ----- |
 | UI (admin)          | 3000  |
 | Agent Service (ADK) | 3000  |
-| Backend API         | 5000  |
+| Backend API         | 3000  |
 | Ollama              | 11434 |
 
 URLs:
@@ -28,8 +28,7 @@ ShopAgent/
 │   ├── dynamic/
 │   │   ├── orders.json
 │   │   ├── products.json
-│   │   ├── workflow.state.json          # 🧠 Runtime state
-│   │   └── sessions.state.json          # 🧠 Chat memory
+│   │   └── workflow.state.json          # 🧠 Runtime state
 │   │
 │   └── seed/
 │       └── ... (unchanged)
@@ -59,7 +58,7 @@ ShopAgent/
 │   │   ├── prompt.builder.ts
 │   │   └── context.manager.ts
 │   │
-│   ├── tools/                           # 🔧 PROMPT TOOLS + GUARDS
+│   ├── mcp_tools/                           # 🔧 PROMPT TOOLS + GUARDS
 │   │   ├── orders.tool.ts               # read/update + guards
 │   │   ├── products.tool.ts
 │   │   ├── promotions.tool.ts
@@ -91,7 +90,7 @@ ShopAgent/
 │   │   ├── errors.ts
 │   │   └── storage.ts
 │   │
-│   ├── seed.ts
+│   ├
 │   └── server.ts
 │
 ├── jest.config.js
@@ -149,7 +148,87 @@ ResponseAgent:
 
 
 ==================================================
-5. Agent Prompts (Concise):
+5. LLM Usage by Agent:
+==================================================
+PlannerAgent → Uses LLM:
+Why LLM is needed:
+- Planner's main job is understanding natural language from the admin
+- Tasks like intent detection, entity extraction, and ambiguity detection are language-heavy and hard to code deterministically
+- Example: "Change the price of HP-BLK-001 to $320" → extract intent (UPDATE_PRODUCT_PRICE) + entities (sku=HP-BLK-001, newPrice=320)
+- Confidence scoring is also done here
+
+Summary:
+- LLM used: ✅ Yes
+- Reason: Natural language understanding, flexible parsing, context awareness
+
+ValidationAgent → Does NOT use LLM:
+Why LLM is NOT needed:
+- Validation is deterministic — it checks:
+  - Schema correctness (price > 0, SKU exists)
+  - Business rules (price deviation threshold, allowed order transitions)
+  - Risk scoring (e.g., PRICE_OUTLIER)
+- These are rule-based checks and don't require LLM reasoning
+- Using LLM here would:
+  - Add unnecessary cost and latency
+  - Make safety/risk checks less predictable
+
+Summary:
+- LLM used: ❌ No
+- Reason: Deterministic business rules; LLM could be unsafe or slower
+
+ExecutionAgent → Does NOT use LLM:
+Why LLM is NOT needed:
+- Execution is about API calls / database updates
+- It maps validated intents to endpoints and executes them
+- All inputs are already verified by ValidationAgent, so LLM reasoning isn't required
+- Using LLM here would:
+  - Add unnecessary complexity
+  - Introduce risk (LLM could hallucinate API payloads)
+
+Summary:
+- LLM used: ❌ No
+- Reason: Purely deterministic action execution
+
+ResponseAgent → Optional LLM:
+Why it may use LLM:
+- ResponseAgent formats user-friendly messages
+- If you want simple templated messages, LLM is not required
+- If you want dynamic, human-like, rich responses, LLM can help
+
+Decision for your system:
+- For production-safe prototype, use templated deterministic messages → no LLM
+- For polished UI with natural language → optional LLM
+
+Summary:
+- LLM used: ❌ Optional / template-based recommended
+- Reason: Safety and predictability; LLM only improves message style, not function
+
+WorkflowAgent → Does NOT use LLM:
+Why LLM is NOT needed:
+- WorkflowAgent is the orchestrator: Planner → Validation → Execution → Response
+- It decides sequence, retries, and HITL triggers
+- All logic is deterministic; no language understanding needed
+
+Summary:
+- LLM used: ❌ No
+- Reason: Orchestration is rule-based; predictable workflow is mandatory
+
+LLM Usage Summary Table:
+| Agent               | LLM Used?  | Why / Why Not                                                                    |
+| ------------------- | ---------- | -------------------------------------------------------------------------------- |
+| PlannerAgent        | ✅ Yes      | Extract intent/entities from NL; confidence scoring; ambiguity detection         |
+| ValidationAgent     | ❌ No       | Deterministic guardrails, risk checks, schema/business rules; safe & predictable |
+| ExecutionAgent      | ❌ No       | Executes API calls; already validated; deterministic                             |
+| ResponseAgent       | ❌ Optional | Can use templates; LLM optional for nicer text; not critical                     |
+| WorkflowAgent       | ❌ No       | Orchestrates sequence; rule-based; deterministic                                 |
+
+Key Principle:
+- LLM only where understanding language or reasoning about unstructured input is required
+- Deterministic, safety-critical, or action-oriented steps never use LLM
+
+
+==================================================
+6. Agent Prompts (Concise):
 ==================================================
 PlannerAgent Prompt:
 You are a PlannerAgent for an e-commerce admin system. Extract intent and entities from user messages.
@@ -342,7 +421,7 @@ ResponseAgent Output (Invalid Transition):
 
 
 ==================================================
-6. System Flow:
+7. System Flow:
 ==================================================
 Admin UI
    ↓
@@ -359,7 +438,77 @@ Every request has:
 
 
 ==================================================
-7. Customer View:
+8. Development Flow:
+==================================================
+1. Define the Goal & Scope
+   ↓
+2. Design the Agent & Interactions
+   ↓
+3. Build Agents & Tools
+   ↓
+4. Configure & Connect
+   ↓
+5. Local Run & Debug
+   ↓
+6. Evaluate & Iterate
+   ↓ (feedback loop back to step 3)
+7. Deploy
+
+Detailed Steps:
+
+1. Define the Goal & Scope:
+   - E-commerce admin assistant for single administrator
+   - Natural language interface for store management
+   - Support: product updates, order management, promotions
+   - Human-in-the-loop for high-risk actions (price outliers > 40%)
+   - Prototype scope: UI + Agent + Backend on port 3000
+
+2. Design the Agent & Interactions:
+   - 4 logical agents: PlannerAgent, ValidationAgent, ExecutionAgent, ResponseAgent
+   - Agent flow: Planner → Validator → Executor → Responder
+   - Define prompts for each agent
+   - Design guardrails and business rules
+   - Define state persistence strategy
+
+3. Build Agents & Tools:
+   - Implement agent logic (src/agent/)
+   - Build tools and guards (src/tools/)
+   - Create state management (src/state/)
+   - Set up observability (src/observability/)
+   - Integrate Ollama LLM (src/llm/)
+
+4. Configure & Connect:
+   - Configure ports (UI: 3000, API: 5000, Ollama: 11434)
+   - Connect agent to backend API
+   - Set up state persistence (workflow.state.json)
+   - Configure metrics and tracing
+   - Set up prompt registry
+
+5. Local Run & Debug:
+   - Start Ollama service
+   - Run backend API (port 5000)
+   - Run agent service (port 3000)
+   - Test agent interactions
+   - Debug using trace logs and metrics
+   - Test guardrails and edge cases
+
+6. Evaluate & Iterate:
+   - Review agent responses
+   - Check metrics and performance
+   - Test guardrail effectiveness
+   - Validate human-in-the-loop flow
+   - Iterate on prompts and tools
+   - Feedback loop: Return to step 3 (Build Agents & Tools) for improvements
+
+7. Deploy:
+   - Finalize code
+   - Run comprehensive tests
+   - Deploy to production environment
+   - Monitor metrics and logs
+
+
+==================================================
+9. Customer View:
 ==================================================
 - URL: http://localhost:3000/
 - This is only read-only page
@@ -369,7 +518,7 @@ Every request has:
 
 
 ==================================================
-8. Admin UI:
+10. Admin UI:
 ==================================================
 - URL: http://localhost:3000/admin
 - This is the admin page where admin can see the recent orders
@@ -383,7 +532,7 @@ Every request has:
 
 
 ==================================================
-9. Backend API:
+11. Backend API:
 ==================================================
 - Base URL: http://localhost:5000/api
 - Full API documentation available at http://localhost:5000/api
@@ -393,7 +542,7 @@ Every request has:
 
 
 ==================================================
-10. Model Selected:
+12. Model Selected:
 ==================================================
 - Model: ollama pull qwen3-coder:30b
 - Source: https://ollama.com/library/qwen3-coder:30b (19GB)
@@ -401,7 +550,7 @@ Every request has:
 
 
 ==================================================
-11. Traceability Model (Mandatory):
+13. Traceability Model (Mandatory):
 ==================================================
 Every request generates:
 - traceId = uuid()
@@ -448,7 +597,7 @@ Example Trace Log:
 
 
 ==================================================
-12. Metrics - What to Capture and Where to Store:
+14. Metrics - What to Capture and Where to Store:
 ==================================================
 Where to Store Metrics:
 For assignment:
@@ -774,7 +923,7 @@ API Metric (Standalone):
 
 
 ==================================================
-13. Prompt Registry (Versioned):
+15. Prompt Registry (Versioned):
 ==================================================
 Create:
 /prompts/
@@ -803,7 +952,7 @@ const ACTIVE_PROMPT = "planner.v2";
 
 
 ==================================================
-14. Guardrails (Business + AI):
+16. Guardrails (Business + AI):
 ==================================================
 Price Outlier Guardrail:
 Rule:
@@ -855,7 +1004,7 @@ LLM Guardrails:
 
 
 ==================================================
-15. Human-in-the-Loop Flow (Price Outlier):
+17. Human-in-the-Loop Flow (Price Outlier):
 ==================================================
 Guardrail Rule:
 ABS(newPrice - oldPrice) / oldPrice > 40%
@@ -886,7 +1035,146 @@ Executes update
 
 
 ==================================================
-16. Possible Admin Questions (Based on Data):
+18. Human-in-the-Loop (HITL) Implementation:
+==================================================
+What We Are Trying to Achieve:
+- Run guardrails + validations
+- Measure confidence / risk / edge cases
+- If thresholds fail or look risky → pause execution
+- Introduce a human to review or approve
+- Resume workflow safely after approval
+
+Key Rule:
+❗ Human-in-the-Loop is NOT a new agent type in ADK
+❗ It is a workflow state + decision point
+❗ You do NOT create a separate "HumanAgent"
+
+Where HITL Belongs in Workflow:
+Planner (LLM)
+   ↓
+Guardrails + Validation
+   ↓
+Decision Gate (Thresholds)
+   ├── PASS → Execute
+   └── FAIL / RISK → Human-in-the-Loop
+                          ↓
+                     Approve / Reject / Modify
+                          ↓
+                       Execute or Stop
+
+This fits perfectly inside a Sequential Workflow Agent.
+
+Metrics That Trigger Human-in-the-Loop:
+
+1. Intent Confidence Score:
+From PlannerAgent:
+intent_confidence < 0.75
+➡️ HITL required
+
+2. Entity Extraction Confidence:
+Missing or ambiguous entities:
+{
+  "product_id": null,
+  "order_id": "ambiguous"
+}
+➡️ HITL required
+
+3. Guardrail Violations:
+Examples:
+- Price change > 20%
+- Order cancellation after shipping
+- Inventory set to negative
+➡️ HITL required
+
+4. High-Risk Operations:
+Even with high confidence:
+
+| Action          | HITL |
+| --------------- | ---- |
+| Refund          | Yes  |
+| Price update    | Yes  |
+| Delete product  | Yes  |
+| Inventory reset | Yes  |
+
+5. Edge-Case Detection:
+Examples:
+- Multiple valid intents detected
+- Conflicting parameters
+- LLM uncertainty flag
+➡️ HITL required
+
+How to Implement This Cleanly (ADK-style):
+
+Step 1: Validation Agent returns a decision:
+{
+  "status": "HITL_REQUIRED",
+  "reason": "Price change exceeds threshold",
+  "risk_score": 0.82
+}
+No LLM here. Deterministic.
+
+Step 2: Workflow Agent pauses execution:
+Workflow sets:
+state = "WAITING_FOR_HUMAN_APPROVAL"
+Nothing continues automatically.
+
+Step 3: Human reviews (UI / Admin Panel):
+Human can:
+- Approve
+- Reject
+- Modify parameters
+This is outside ADK (UI / API).
+
+Step 4: Resume workflow:
+When approval arrives:
+{
+  "approved": true,
+  "modified_price": 49.99
+}
+Workflow resumes → ExecutionAgent
+
+Do You Need a Loop Agent for This?
+❌ No
+
+Why?
+- You are waiting on an external event
+- Not retrying LLM calls
+- Not looping internally
+Correct pattern = stateful pause + resume
+
+Threshold Design:
+| Metric              | Threshold | Action |
+| ------------------- | --------- | ------ |
+| Intent confidence   | < 0.75    | HITL   |
+| Entity completeness | < 100%    | HITL   |
+| Risk score          | > 0.6     | HITL   |
+| Price change        | > 15–20%  | HITL   |
+| Destructive action  | Any       | HITL   |
+
+Common Mistake (You Are Avoiding It):
+❌ Letting LLM decide whether human is needed
+❌ Asking LLM "Should I ask a human?"
+
+✅ Correct:
+- LLM gives signals
+- Workflow + rules decide
+This is enterprise-grade safety.
+
+How to Explain This Simply (Interview-Ready):
+"We use deterministic guardrails and thresholds after intent extraction.
+If confidence, risk, or edge-case checks fail, the workflow transitions into a human-approval state.
+Execution resumes only after explicit approval."
+
+Final Confirmation:
+✔ Yes, you should introduce Human-in-the-Loop
+✔ Based on metrics + thresholds, not intuition
+✔ Implemented as workflow pause, not new agent
+✔ Fits perfectly inside Sequential Workflow Agent
+✔ No Parallel / Loop agent needed
+
+
+==================================================
+19. Possible Admin Questions (Based on Data):
 ==================================================
 Products:
 ✔ Change price
@@ -910,7 +1198,7 @@ Promotions (Optional):
 
 
 ==================================================
-17. Success Paths:
+20. Success Paths:
 ==================================================
 Example: Price Update (Normal):
 Admin → "Change price of HP-BLK-001 to $320"
@@ -927,7 +1215,7 @@ Response → Success
 
 
 ==================================================
-18. Failure Paths (Edge Cases):
+21. Failure Paths (Edge Cases):
 ==================================================
 SKU Not Found:
 "Change price of SKU-9999 to $50"
@@ -951,7 +1239,7 @@ Fail → Fallback response
 
 
 ==================================================
-19. Edge Case Flow Matrix:
+22. Edge Case Flow Matrix:
 ==================================================
 1. Price Outlier (Human Loop):
 Request → Validator detects outlier → Save state →
@@ -972,7 +1260,7 @@ Fail → Fallback response
 
 
 ==================================================
-20. State Persistence Strategy:
+23. State Persistence Strategy:
 ==================================================
 For assignment:
 In-memory Map + JSON snapshot
@@ -1029,7 +1317,7 @@ WorkflowState Schema:
 
 
 ==================================================
-21. Workflow State Machine:
+24. Workflow State Machine:
 ==================================================
 IDLE
   ↓
@@ -1048,7 +1336,7 @@ FAILED → IDLE
 
 
 ==================================================
-22. Folder Additions:
+25. Folder Additions:
 ==================================================
 /metrics
 /prompts
@@ -1057,7 +1345,371 @@ FAILED → IDLE
 
 
 ==================================================
-23. Development Phase Checklist:
+26. Debug Walkthrough - Notebook Style:
+==================================================
+Scenario 1: Normal Price Update (Happy Path)
+
+User Input (Admin UI):
+"Change price of HP-BLK-001 to $320"
+
+Cell 1 — Request Enters the System:
+Entry Point:
+- UI → POST /agent/chat
+- Session ID already exists (browser)
+- Backend middleware injects:
+
+{
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788",
+  "sessionId": "sess-abc123"
+}
+
+📌 Debug Tip:
+- If nothing works → check server.ts middleware
+- First thing you always log: traceId + workflowId
+
+Cell 2 — PlannerAgent (LLM):
+Input to PlannerAgent:
+{
+  "message": "Change price of HP-BLK-001 to $320",
+  "context": {
+    "sessionId": "sess-abc123"
+  }
+}
+
+What PlannerAgent Does:
+- Calls LLM (Ollama qwen3-coder:30b)
+- Uses planner.v2 prompt
+- Extracts: Intent, Entities, Confidence
+
+Output:
+{
+  "intent": "UPDATE_PRODUCT_PRICE",
+  "entities": {
+    "sku": "HP-BLK-001",
+    "newPrice": 320
+  },
+  "confidence": 0.94,
+  "timestamp": "2026-01-29T10:11:00.045Z",
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788"
+}
+
+Metrics Logged:
+{
+  "layer": "PLANNER_AGENT",
+  "intent_confidence": 0.94,
+  "llm_calls": 1
+}
+
+📌 Debug Tips:
+- Wrong intent? → open /prompts/planner.v2.txt
+- Low confidence? → check ambiguity or missing entities
+- LLM slow? → check ollama.client.ts latency
+
+Cell 3 — ValidationAgent (NO LLM):
+Input to ValidationAgent:
+{
+  "intent": "UPDATE_PRODUCT_PRICE",
+  "entities": {
+    "sku": "HP-BLK-001",
+    "newPrice": 320
+  }
+}
+
+Validation Steps (Deterministic):
+1. Schema Check:
+   - sku exists? ✅
+   - price >= 0? ✅
+2. Business Rule:
+   - Old price = 299.99
+   - Deviation = ~6.6% → within threshold
+3. Risk Check:
+   - No PRICE_OUTLIER
+
+Output:
+{
+  "valid": true,
+  "riskFlag": null,
+  "errors": [],
+  "entityExists": true,
+  "businessRulesPassed": true,
+  "requiresConfirmation": false,
+  "timestamp": "2026-01-29T10:11:00.120Z",
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788"
+}
+
+📌 Debug Tips:
+- Validation failing unexpectedly?
+  - Check price.guard.ts
+  - Check validation.guard.ts
+- Wrong threshold?
+  - Metrics will show guardrail_triggers
+
+Cell 4 — ExecutionAgent (NO LLM):
+Input:
+{
+  "intent": "UPDATE_PRODUCT_PRICE",
+  "entities": {
+    "sku": "HP-BLK-001",
+    "newPrice": 320
+  },
+  "confirmed": true
+}
+
+Execution Steps:
+1. Map intent → API endpoint:
+   PUT /api/v1/products/HP-BLK-001/price
+2. Call Backend API
+3. Backend updates products.json
+4. Atomic write succeeds
+
+Output:
+{
+  "success": true,
+  "data": {
+    "sku": "HP-BLK-001",
+    "oldPrice": 299.99,
+    "newPrice": 320,
+    "productName": "Premium Wireless Headphones",
+    "updatedAt": "2026-01-29T10:11:00.280Z"
+  },
+  "error": null,
+  "apiResponse": {
+    "statusCode": 200,
+    "message": "Product price updated successfully"
+  },
+  "timestamp": "2026-01-29T10:11:00.280Z",
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788"
+}
+
+📌 Debug Tips:
+- API error?
+  - Check /routes/products.ts
+  - Check API metrics (status_code)
+- Data not updated?
+  - Inspect storage.ts
+
+Cell 5 — ResponseAgent:
+Input:
+{
+  "success": true,
+  "intent": "UPDATE_PRODUCT_PRICE",
+  "data": {
+    "sku": "HP-BLK-001",
+    "oldPrice": 299.99,
+    "newPrice": 320
+  }
+}
+
+Output:
+"✅ Successfully updated the price of Premium Wireless Headphones (HP-BLK-001) from $299.99 to $320."
+
+📌 Debug Tips:
+- Wrong message?
+  - ResponseAgent is deterministic
+  - Easy to fix, no LLM risk
+
+Cell 6 — Workflow Completion:
+Workflow State:
+{
+  "status": "COMPLETED",
+  "workflowId": "SHOP-7788",
+  "traceId": "t-101",
+  "sessionId": "sess-abc123",
+  "updatedAt": "2026-01-29T10:11:00.340Z"
+}
+
+Final Metrics:
+{
+  "total_latency_ms": 340,
+  "agent_steps": 4,
+  "success": true,
+  "workflowTimestampStart": "2026-01-29T10:11:00.000Z",
+  "workflowTimestampEnd": "2026-01-29T10:11:00.340Z"
+}
+
+
+Scenario 2: Price Outlier → Human-in-the-Loop
+
+User Input:
+"Change price of PD-1067 to $67"
+
+PlannerAgent:
+Output:
+{
+  "intent": "UPDATE_PRODUCT_PRICE",
+  "entities": {
+    "sku": "PD-1067",
+    "newPrice": 67
+  },
+  "confidence": 0.96,
+  "timestamp": "2026-01-29T10:11:00.045Z",
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788"
+}
+
+ValidationAgent (Key Difference):
+Old price = 890
+New price = 67
+Deviation = 92%
+
+Output:
+{
+  "valid": false,
+  "riskFlag": "PRICE_OUTLIER",
+  "errors": ["Price deviation 92% exceeds 40% threshold"],
+  "entityExists": true,
+  "businessRulesPassed": false,
+  "oldPrice": 890,
+  "newPrice": 67,
+  "deviationPercent": 92.47,
+  "requiresConfirmation": true,
+  "timestamp": "2026-01-29T10:11:00.120Z",
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788"
+}
+
+Workflow Decision:
+🚫 STOP execution
+
+Workflow State Saved:
+{
+  "status": "PENDING_CONFIRMATION",
+  "workflowId": "SHOP-7788",
+  "traceId": "t-101",
+  "sessionId": "sess-abc123",
+  "pendingAction": {
+    "intent": "UPDATE_PRODUCT_PRICE",
+    "entity": {
+      "sku": "PD-1067",
+      "newPrice": 67
+    },
+    "riskFlag": "PRICE_OUTLIER",
+    "originalValue": 890,
+    "requestedValue": 67
+  },
+  "updatedAt": "2026-01-29T10:11:00.120Z"
+}
+
+Response to User:
+"⚠️ This is a large price change (from $890 → $67, 92% drop).
+
+Please confirm:
+'CONFIRM price change for PD-1067 to $67'"
+
+📌 Debug Tips:
+- Check /state/workflow_state.json
+- Confirm pendingConfirmation = true
+- Metrics show guardrail_triggers: ["PRICE_OUTLIER"]
+
+User Confirms:
+"CONFIRM price change for PD-1067 to $67"
+
+What Happens:
+- Planner detects CONFIRM intent
+- Workflow loads saved state
+- Skips validation (already validated)
+- Executes update
+- Completes workflow
+
+📌 Important:
+✔ No Loop Agent
+✔ No HumanAgent
+✔ Just state + resume
+
+
+Scenario 3: SKU Not Found (Fast Fail)
+
+User Input:
+"Change price of SKU-9999 to $50"
+
+PlannerAgent:
+Output:
+{
+  "intent": "UPDATE_PRODUCT_PRICE",
+  "entities": {
+    "sku": "SKU-9999",
+    "newPrice": 50
+  },
+  "confidence": 0.92,
+  "timestamp": "2026-01-29T10:11:00.045Z",
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788"
+}
+
+ValidationAgent Output:
+{
+  "valid": false,
+  "riskFlag": "SKU_NOT_FOUND",
+  "errors": ["Product with SKU SKU-9999 not found"],
+  "entityExists": false,
+  "businessRulesPassed": false,
+  "requiresConfirmation": false,
+  "timestamp": "2026-01-29T10:11:00.120Z",
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788"
+}
+
+Response:
+"❌ Error: Product SKU-9999 not found. Please check the SKU and try again."
+
+Workflow State:
+{
+  "status": "FAILED",
+  "workflowId": "SHOP-7788",
+  "traceId": "t-101",
+  "sessionId": "sess-abc123",
+  "updatedAt": "2026-01-29T10:11:00.120Z"
+}
+
+Workflow ends immediately.
+
+📌 Debug:
+- ValidationAgent metrics
+- No ExecutionAgent call
+- agent_steps = 2
+
+
+How You Debug This Like a Notebook:
+
+When something breaks, you ask in this order:
+
+1. Did Planner understand intent?
+   - Check intent_confidence
+   - Check /prompts/planner.v2.txt
+   - Check LLM metrics
+
+2. Did Validation block it?
+   - Check riskFlag, errors
+   - Check /tools/validation.guard.ts
+   - Check /tools/price.guard.ts
+
+3. Was HITL triggered?
+   - Check workflow state (/state/workflow_state.json)
+   - Check status: PENDING_CONFIRMATION
+   - Check pendingAction
+
+4. Did API fail?
+   - Check API metrics (status_code)
+   - Check /routes/products.ts
+   - Check storage.ts
+
+5. Did response look wrong?
+   - ResponseAgent (safe, deterministic)
+   - Check response templates
+
+You never guess.
+Everything is traceable.
+
+Interview-Ready One-Liner:
+"We debug agent workflows the same way we debug distributed systems — tracing intent extraction, validation decisions, tool calls, and state transitions with deterministic checkpoints and metrics at each step."
+
+
+==================================================
+27. Development Phase Checklist:
 ==================================================
 Phase 1 – Infrastructure:
 ✅ Agent service skeleton
@@ -1085,3 +1737,1366 @@ Phase 5 – Tests:
 ✅ Guardrail tests
 ✅ Confirmation tests
 ✅ API tests
+
+
+==================================================
+28. ADK Agent Architecture - When to Use LlmAgent:
+==================================================
+Key Principle:
+✅ Only LlmAgent can reliably produce structured output from natural language
+❌ WorkflowAgent, ValidationAgent, ExecutionAgent cannot parse free-form text or infer intent
+
+Rule:
+Natural language → structured JSON = LlmAgent
+
+==================================================
+29. The CORRECT ADK Pattern (Enterprise-Grade):
+==================================================
+❌ Wrong Pattern (Common Mistake):
+"Use LlmAgent everywhere because it can do reasoning"
+
+Problems:
+- Non-determinism
+- Hard debugging
+- Dangerous tool calls
+- Interview red flags
+
+✅ Correct ADK Pattern (Strong Teams):
+Use ONE LlmAgent as boundary translator, then everything else is deterministic.
+
+Flow:
+Natural Language
+   ↓
+[LlmAgent]  ← structured output (JSON)
+   ↓
+[WorkflowAgent]
+   ↓
+Validation (TypeScript - deterministic)
+   ↓
+Execution (Tools - deterministic)
+   ↓
+Response (Template or optional LlmAgent)
+
+This aligns perfectly with ADK's philosophy.
+
+==================================================
+30. System Mapped to ADK Components:
+==================================================
+Agent 1: PlannerAgent (LlmAgent) ✅
+
+Purpose:
+Convert admin English → structured command
+
+This is where structured output schemas matter.
+
+ADK Implementation (TypeScript, ADK v0.2+):
+```typescript
+import { LlmAgent } from "@google/adk";
+import { Schema, Type } from "@google/genai";
+
+const PlannerOutputSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    intent: { type: Type.STRING },
+    entities: { type: Type.OBJECT },
+    confidence: { type: Type.NUMBER }
+  },
+  required: ["intent", "entities", "confidence"]
+};
+
+export const PlannerAgent = new LlmAgent({
+  name: "planner_agent",
+  model: "qwen3-coder:30b",
+  instruction: `
+You are an admin command parser.
+
+Extract intent and entities.
+Respond ONLY in JSON matching the schema.
+`,
+  outputSchema: PlannerOutputSchema,
+  outputKey: "plan"
+});
+```
+
+Why This is Correct:
+- Structured output enforced
+- Stored in workflow state
+- Easy to debug (state.plan)
+- No tools here → safer
+
+Agent 2: WorkflowAgent (NO LLM) ❌🧠
+
+Purpose:
+Orchestrate steps, not think.
+
+Implementation:
+```typescript
+export const AdminWorkflow = new WorkflowAgent({
+  name: "admin_workflow",
+  run: async (ctx) => {
+    const plan = ctx.state.plan; // from PlannerAgent
+    // deterministic routing
+  }
+});
+```
+
+Why No LLM:
+- Execution order must be predictable
+- Notebook-style tracing required
+- ADK explicitly designed WorkflowAgent for this
+
+Agent 3: ValidationAgent (NO LLM) ❌🧠
+
+Purpose:
+Guardrails, thresholds, HITL decisions
+
+Implementation:
+```typescript
+if (priceChange > 0.5) {
+  ctx.state.pendingConfirmation = true;
+}
+```
+
+Why No LLM:
+- Business rules ≠ language reasoning
+- Deterministic
+- Testable
+
+Agent 4: ExecutionAgent (Tools, NO LLM) ❌🧠
+
+Purpose:
+Call backend APIs
+
+Implementation:
+```typescript
+tools: [updatePriceTool]
+```
+
+Critical ADK Rule:
+LLMs decide WHAT, tools do HOW
+
+Agent 5: ResponseAgent (Optional LLM)
+
+Options:
+- Deterministic text (recommended for safety)
+- OR tiny LlmAgent for UX polish (optional)
+
+==================================================
+31. BuiltInPlanner / PlanReActPlanner - Should You Use?
+==================================================
+Answer: NO
+
+Why:
+- You already separated planning (PlannerAgent)
+- You want predictable admin actions
+- PlanReAct adds reasoning noise
+
+Interview-Safe Explanation:
+"We avoid multi-step LLM planning for admin mutations and instead use a single structured intent extraction step followed by deterministic workflows."
+
+This is a strong answer.
+
+==================================================
+32. Human-in-the-Loop (ADK Implementation):
+==================================================
+You do NOT need:
+- HumanAgent
+- LoopAgent
+
+You already do HITL via state + confirmation intent.
+
+Flow:
+PRICE_OUTLIER
+   ↓
+state.pendingAction
+   ↓
+CONFIRM intent (detected by PlannerAgent)
+   ↓
+resume workflow (WorkflowAgent)
+
+This is clean ADK usage.
+
+==================================================
+33. ADK Component Decision Table:
+==================================================
+| Component         | ADK Type        | LLM? | Why                          |
+| ----------------- | --------------- | ---- | ---------------------------- |
+| Intent extraction | LlmAgent        | ✅    | Language → JSON              |
+| Structured output | outputSchema    | ✅    | Enforced format              |
+| Orchestration     | WorkflowAgent   | ❌    | Deterministic                |
+| Validation        | TS functions    | ❌    | Guardrails                   |
+| API calls         | Tools           | ❌    | Safety                       |
+| HITL              | State           | ❌    | Resume safely                |
+| Response          | Template/LlmAgent | ❌/✅ | Optional for UX polish      |
+
+Key Principle:
+- LLM only where understanding language or reasoning about unstructured input is required
+- Deterministic, safety-critical, or action-oriented steps never use LLM
+
+==================================================
+34. Interview-Ready One-Liner (ADK Architecture):
+==================================================
+"In ADK we use an LlmAgent strictly as a language-to-structure boundary with enforced output schemas, and then hand off to WorkflowAgents and tools for deterministic execution, guardrails, and human-in-the-loop control."
+
+This demonstrates:
+- Clear understanding of ADK components
+- Enterprise-grade safety thinking
+- Proper separation of concerns
+- Interview-ready explanation
+
+==================================================
+35. Structured Output Schema (PlannerAgent):
+==================================================
+PlannerAgent Output Schema:
+```typescript
+{
+  type: Type.OBJECT,
+  properties: {
+    intent: { 
+      type: Type.STRING,
+      enum: [
+        "UPDATE_PRODUCT_PRICE",
+        "UPDATE_PRODUCT_DESCRIPTION",
+        "CANCEL_ORDER",
+        "UPDATE_ORDER_STATUS",
+        "SHOW_PRODUCT_INFO",
+        "SHOW_ORDER_INFO",
+        "UPDATE_PROMOTION_STATUS",
+        "GET_INVENTORY_LEVEL"
+      ]
+    },
+    entities: { 
+      type: Type.OBJECT,
+      properties: {
+        sku: { type: Type.STRING, optional: true },
+        orderNumber: { type: Type.STRING, optional: true },
+        newPrice: { type: Type.NUMBER, optional: true },
+        status: { type: Type.STRING, optional: true },
+        // ... other entity fields
+      }
+    },
+    confidence: { 
+      type: Type.NUMBER,
+      minimum: 0,
+      maximum: 1
+    }
+  },
+  required: ["intent", "entities", "confidence"]
+}
+```
+
+Benefits:
+- Type-safe parsing
+- Validation at LLM boundary
+- Easy debugging
+- No schema drift
+
+==================================================
+36. ADK Agent Flow (Complete):
+==================================================
+User Input (Natural Language)
+   ↓
+[PlannerAgent - LlmAgent]
+   - Uses outputSchema
+   - Stores in state.plan
+   - Returns: {intent, entities, confidence}
+   ↓
+[WorkflowAgent]
+   - Reads state.plan
+   - Routes to ValidationAgent
+   ↓
+[ValidationAgent - TypeScript Functions]
+   - Checks guardrails
+   - Calculates risk flags
+   - Sets state.pendingConfirmation if needed
+   ↓
+Decision Point:
+   ├── HITL Required? → Save state, ask user
+   └── Proceed? → Continue to ExecutionAgent
+   ↓
+[ExecutionAgent - Tools]
+   - Calls backend API
+   - Updates data
+   - Returns success/error
+   ↓
+[ResponseAgent - Template or Optional LlmAgent]
+   - Formats user-friendly message
+   - Returns to UI
+
+Key Points:
+- Only PlannerAgent uses LLM (required)
+- ResponseAgent may use LLM (optional, for UX)
+- Everything else is deterministic
+- State flows through WorkflowAgent
+- Tools execute actions safely
+
+==================================================
+37. Why This Architecture is Interview-Ready:
+==================================================
+Demonstrates:
+1. Clear understanding of ADK components
+   - Knows when to use LlmAgent vs WorkflowAgent
+   - Understands structured output schemas
+   - Proper tool usage
+
+2. Enterprise-grade safety thinking
+   - LLM only at language boundary
+   - Deterministic validation and execution
+   - Guardrails and HITL properly implemented
+
+3. Proper separation of concerns
+   - Planner extracts intent (LLM)
+   - Validator enforces rules (deterministic)
+   - Executor performs actions (tools)
+   - Responder formats output (template/optional LLM)
+
+4. Interview-ready explanation
+   - Can articulate design decisions
+   - Understands trade-offs
+   - Follows ADK best practices
+
+This architecture is production-ready and demonstrates strong engineering judgment.
+
+
+==================================================
+38. Happy Path Walkthrough - End-to-End Example:
+==================================================
+Use Case:
+Admin types: "Change the price of SKU-001 to $49.99"
+
+This walkthrough shows:
+- What runs at each step
+- Who uses the LLM
+- What data looks like at each step
+- Why this is correct ADK usage
+
+No edge cases, no HITL, no retries - just the clean happy path.
+
+==================================================
+39. Step 0: Initial State:
+==================================================
+Admin is on /admin
+Chatbot UI sends raw text to agent service
+
+Request Payload:
+```json
+{
+  "message": "Change the price of SKU-001 to $49.99",
+  "sessionId": "sess-abc123"
+}
+```
+
+System generates:
+- traceId: "t-101"
+- workflowId: "SHOP-7788"
+- workflowTimestampStart: "2026-01-29T10:11:00.000Z"
+
+==================================================
+40. Step 1: PlannerAgent (LlmAgent) ✅ - ONLY LLM Usage:
+==================================================
+Why This Agent Exists:
+Natural language → structured command
+This is NOT executable yet, just interpretation.
+
+Input to LLM:
+```
+Change the price of SKU-001 to $49.99
+```
+
+PlannerAgent Instruction (from prompt registry):
+```
+You are an admin command parser.
+Extract intent and entities.
+Return JSON only.
+```
+
+LLM Output (schema-validated):
+```json
+{
+  "intent": "UPDATE_PRODUCT_PRICE",
+  "entities": {
+    "sku": "SKU-001",
+    "newPrice": 49.99
+  },
+  "confidence": 0.96
+}
+```
+
+What ADK Does:
+- Validates against outputSchema
+- Stores result in workflow state:
+  ```typescript
+  ctx.state.plan = {
+    intent: "UPDATE_PRODUCT_PRICE",
+    entities: { sku: "SKU-001", newPrice: 49.99 },
+    confidence: 0.96
+  }
+  ```
+
+🚫 No API calls
+🚫 No side effects
+🚫 No branching
+
+Metrics Logged:
+```json
+{
+  "layer": "PLANNER_AGENT",
+  "timestamp": "2026-01-29T10:11:00.045Z",
+  "metrics": {
+    "plannerAgent": {
+      "timestampStart": "2026-01-29T10:11:00.000Z",
+      "timestampCompleted": "2026-01-29T10:11:00.045Z",
+      "latency_ms": 45,
+      "intent": "UPDATE_PRODUCT_PRICE",
+      "intent_confidence": 0.96,
+      "entities_extracted": 2,
+      "llm_calls": 1,
+      "errors": 0
+    },
+    "llm": {
+      "prompt_tokens": 412,
+      "completion_tokens": 91,
+      "total_tokens": 503,
+      "context_usage_pct": 32,
+      "latency_ms": 40,
+      "retry_count": 0,
+      "model": "qwen3-coder:30b"
+    }
+  }
+}
+```
+
+==================================================
+41. Step 2: WorkflowAgent (NO LLM) ❌🧠 - Deterministic Routing:
+==================================================
+Why No LLM Here:
+- We already understand the command
+- Now we EXECUTE, not reason
+
+WorkflowAgent Logic:
+```typescript
+const plan = ctx.state.plan;
+
+switch (plan.intent) {
+  case "UPDATE_PRODUCT_PRICE":
+    // Route to validation step
+    return await ctx.run("validate_price_update", {
+      sku: plan.entities.sku,
+      newPrice: plan.entities.newPrice
+    });
+  // ... other cases
+}
+```
+
+📌 Think of this as a CONTROLLER, not a thinker.
+
+State After Routing:
+```typescript
+ctx.state.currentStep = "VALIDATION"
+ctx.state.validationInput = {
+  sku: "SKU-001",
+  newPrice: 49.99
+}
+```
+
+==================================================
+42. Step 3: Validation Step (NO LLM) ❌🧠:
+==================================================
+What Happens:
+Simple business checks - deterministic TypeScript functions.
+
+Validation Logic:
+```typescript
+// Check 1: SKU exists
+const product = await getProductBySku("SKU-001");
+if (!product) {
+  throw new Error("SKU_NOT_FOUND");
+}
+
+// Check 2: Price is non-negative
+if (49.99 < 0) {
+  throw new Error("INVALID_PRICE");
+}
+
+// Check 3: Price deviation (if applicable)
+const oldPrice = product.price;
+const deviation = Math.abs(49.99 - oldPrice) / oldPrice;
+if (deviation > 0.40) {
+  // Would trigger HITL, but this is happy path
+  // deviation is small, so continue
+}
+
+// All checks pass
+return {
+  valid: true,
+  riskFlag: null,
+  errors: []
+};
+```
+
+Happy Path → Validation Passes
+
+Output:
+```json
+{
+  "valid": true,
+  "riskFlag": null,
+  "errors": [],
+  "entityExists": true,
+  "businessRulesPassed": true,
+  "requiresConfirmation": false,
+  "timestamp": "2026-01-29T10:11:00.120Z",
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788"
+}
+```
+
+📌 This is:
+- Testable
+- Predictable
+- Interview-safe
+
+Metrics Logged:
+```json
+{
+  "layer": "VALIDATION_AGENT",
+  "timestamp": "2026-01-29T10:11:00.120Z",
+  "metrics": {
+    "validationAgent": {
+      "timestampStart": "2026-01-29T10:11:00.045Z",
+      "timestampCompleted": "2026-01-29T10:11:00.120Z",
+      "latency_ms": 75,
+      "schema_validation_failures": 0,
+      "guardrail_triggers": [],
+      "risk_flags": [],
+      "validation_passed": true,
+      "errors": 0
+    }
+  }
+}
+```
+
+==================================================
+43. Step 4: Execution Tool (NO LLM) ❌🧠:
+==================================================
+Tool Definition:
+```typescript
+export const updatePriceTool = new FunctionTool({
+  name: "update_product_price",
+  description: "Update product price via backend API",
+  parameters: z.object({
+    sku: z.string().describe("Product SKU"),
+    price: z.number().describe("New price")
+  }),
+  execute: async ({ sku, price }) => {
+    const response = await fetch(`http://localhost:5000/api/v1/products/${sku}/price`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ price })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API error: ${response.statusText}`);
+    }
+    
+    return await response.json();
+  }
+});
+```
+
+WorkflowAgent Calls Tool:
+```typescript
+const result = await ctx.tools.update_product_price({
+  sku: "SKU-001",
+  price: 49.99
+});
+```
+
+Tool Execution:
+1. Calls backend API: PUT /api/v1/products/SKU-001/price
+2. Backend updates products.json
+3. Returns success response
+
+Tool Response:
+```json
+{
+  "success": true,
+  "data": {
+    "sku": "SKU-001",
+    "oldPrice": 39.99,
+    "newPrice": 49.99,
+    "productName": "Sample Product",
+    "updatedAt": "2026-01-29T10:11:00.280Z"
+  }
+}
+```
+
+📌 Important:
+- LLM does NOT touch APIs
+- Tools are pure execution
+- Deterministic and safe
+
+Metrics Logged:
+```json
+{
+  "layer": "EXECUTION_AGENT",
+  "timestamp": "2026-01-29T10:11:00.280Z",
+  "metrics": {
+    "executionAgent": {
+      "timestampStart": "2026-01-29T10:11:00.120Z",
+      "timestampCompleted": "2026-01-29T10:11:00.280Z",
+      "latency_ms": 160,
+      "tool_calls": 1,
+      "api_calls": 1,
+      "api_success": true,
+      "data_updated": true,
+      "errors": 0
+    },
+    "api": {
+      "api_latency_ms": 41,
+      "file_write_ms": 12,
+      "endpoint": "/api/v1/products/SKU-001/price",
+      "method": "PUT",
+      "status_code": 200,
+      "errors": 0
+    }
+  }
+}
+```
+
+==================================================
+44. Step 5: Response Generation (NO LLM - Simple Template):
+==================================================
+ResponseAgent Logic (Deterministic):
+```typescript
+function formatSuccessResponse(data: any): string {
+  const { sku, oldPrice, newPrice, productName } = data;
+  return `✅ Successfully updated the price of ${productName} (${sku}) from $${oldPrice} to $${newPrice}.`;
+}
+```
+
+Response:
+```json
+{
+  "message": "✅ Successfully updated the price of Sample Product (SKU-001) from $39.99 to $49.99.",
+  "traceId": "t-101",
+  "workflowId": "SHOP-7788",
+  "timestamp": "2026-01-29T10:11:00.340Z"
+}
+```
+
+Sent back to chatbot UI.
+
+Metrics Logged:
+```json
+{
+  "layer": "RESPONSE_AGENT",
+  "timestamp": "2026-01-29T10:11:00.340Z",
+  "metrics": {
+    "responseAgent": {
+      "timestampStart": "2026-01-29T10:11:00.280Z",
+      "timestampCompleted": "2026-01-29T10:11:00.340Z",
+      "latency_ms": 60,
+      "response_type": "success",
+      "message_length": 87,
+      "errors": 0
+    }
+  }
+}
+```
+
+==================================================
+45. Step 6: Workflow Completion:
+==================================================
+Final Workflow State:
+```json
+{
+  "status": "COMPLETED",
+  "workflowId": "SHOP-7788",
+  "traceId": "t-101",
+  "sessionId": "sess-abc123",
+  "workflowTimestampStart": "2026-01-29T10:11:00.000Z",
+  "workflowTimestampEnd": "2026-01-29T10:11:00.340Z",
+  "updatedAt": "2026-01-29T10:11:00.340Z"
+}
+```
+
+Final Metrics:
+```json
+{
+  "layer": "WORKFLOW",
+  "timestamp": "2026-01-29T10:11:00.340Z",
+  "metrics": {
+    "workflow": {
+      "workflow_id": "SHOP-7788",
+      "trace_id": "t-101",
+      "total_latency_ms": 340,
+      "success": true,
+      "retries": 0,
+      "agent_steps": 4,
+      "workflowTimestampStart": "2026-01-29T10:11:00.000Z",
+      "workflowTimestampEnd": "2026-01-29T10:11:00.340Z"
+    }
+  }
+}
+```
+
+==================================================
+46. Full Happy-Path Flow (Visual):
+==================================================
+```
+Admin text: "Change the price of SKU-001 to $49.99"
+   ↓
+[PlannerAgent - LlmAgent] ✅ LLM USED HERE
+   - Input: Natural language
+   - Output: {intent, entities, confidence}
+   - Stored in: ctx.state.plan
+   ↓
+[WorkflowAgent] ❌ NO LLM
+   - Reads: ctx.state.plan
+   - Routes: Based on intent
+   ↓
+[ValidationAgent] ❌ NO LLM
+   - Checks: Business rules
+   - Output: {valid: true}
+   ↓
+[ExecutionAgent - Tool] ❌ NO LLM
+   - Calls: Backend API
+   - Updates: products.json
+   ↓
+[ResponseAgent] ❌ NO LLM (template)
+   - Formats: Success message
+   ↓
+Success message to UI
+```
+
+Key Points:
+- LLM used ONLY at language boundary (PlannerAgent)
+- Everything else is deterministic
+- Clear separation of concerns
+- Easy to debug and trace
+
+==================================================
+47. What We Intentionally DID NOT Use (And Why):
+==================================================
+| Thing                 | Why Not Used                    |
+| --------------------- | ------------------------------- |
+| Multi-agent reasoning | Overkill for simple commands    |
+| PlanReAct             | Non-deterministic, adds noise    |
+| LLM validation        | Risky, unpredictable            |
+| Human-in-loop         | Not needed (happy path)          |
+| Confidence threshold  | Happy path, high confidence      |
+| LLM for execution     | Dangerous, tools are safer      |
+| LLM for response      | Optional, template is safer      |
+
+This demonstrates:
+- Clear understanding of when NOT to use LLM
+- Safety-first approach
+- Production-ready thinking
+
+==================================================
+48. Interview-Ready Explanation (One Clean Sentence):
+==================================================
+"We use the LLM only to translate natural language into a structured intent; all validation, orchestration, and API execution are deterministic and handled without an LLM."
+
+This is the money line 💰
+
+Why This Works:
+- Shows clear understanding of ADK architecture
+- Demonstrates safety thinking
+- Explains separation of concerns
+- Production-ready approach
+
+Alternative Explanation:
+"In ADK, we use an LlmAgent strictly as a language-to-structure boundary with enforced output schemas, then hand off to WorkflowAgents and tools for deterministic execution, guardrails, and control."
+
+Both explanations demonstrate:
+- Clear architecture understanding
+- Enterprise-grade safety
+- Proper ADK usage
+- Interview-ready communication
+
+==================================================
+49. Data Flow Summary (Happy Path):
+==================================================
+Input:
+```json
+{
+  "message": "Change the price of SKU-001 to $49.99"
+}
+```
+
+After PlannerAgent (LLM):
+```json
+{
+  "intent": "UPDATE_PRODUCT_PRICE",
+  "entities": { "sku": "SKU-001", "newPrice": 49.99 },
+  "confidence": 0.96
+}
+```
+
+After Validation:
+```json
+{
+  "valid": true,
+  "riskFlag": null,
+  "errors": []
+}
+```
+
+After Execution:
+```json
+{
+  "success": true,
+  "data": {
+    "sku": "SKU-001",
+    "oldPrice": 39.99,
+    "newPrice": 49.99
+  }
+}
+```
+
+Final Response:
+```json
+{
+  "message": "✅ Successfully updated the price of Sample Product (SKU-001) from $39.99 to $49.99."
+}
+```
+
+Key Insight:
+Data transforms from unstructured (natural language) to structured (JSON) at the LLM boundary, then flows deterministically through the rest of the system.
+
+==================================================
+50. Why This Architecture is Production-Correct:
+==================================================
+1. Clear LLM Boundary:
+   - LLM used ONLY where needed (language understanding)
+   - Everything else is deterministic
+
+2. Safety First:
+   - Validation before execution
+   - Tools handle API calls safely
+   - No LLM in critical paths
+
+3. Traceability:
+   - Every step logged with metrics
+   - State transitions are clear
+   - Easy to debug
+
+4. Testability:
+   - Each component can be tested independently
+   - Deterministic steps are easy to verify
+   - LLM output can be mocked
+
+5. Scalability:
+   - LLM calls are minimal (only at boundary)
+   - Deterministic steps are fast
+   - Clear separation allows optimization
+
+This architecture is production-ready and demonstrates strong engineering judgment.
+
+
+==================================================
+51. Universal JSON Schema - System-Wide State:
+==================================================
+This is a robust universal JSON schema that flows through your entire agent system.
+It provides a single source of truth for all agent state, metrics, and traceability.
+
+Complete Schema Structure:
+```json
+{
+  "universalState": {
+    "inputSchema": {
+      "message": "string - original user input",
+      "sessionId": "string - browser session",
+      "traceId": "string - unique trace ID",
+      "workflowId": "string - workflow identifier",
+      "timestamp": "ISO datetime - when request started"
+    },
+    "metrics": {
+      "workflowTimestampStart": "ISO datetime",
+      "workflowTimestampEnd": "ISO datetime | null",
+      "totalLatencyMs": "number | null",
+      "agentSteps": "number",
+      "success": "boolean | null",
+      "retries": "number",
+      
+      "plannerAgent": {
+        "timestampStart": "ISO datetime | null",
+        "timestampCompleted": "ISO datetime | null",
+        "latencyMs": "number | null",
+        "intent": "string | null",
+        "intentConfidence": "number | null",
+        "entitiesExtracted": "number | null",
+        "llmCalls": "number",
+        "errors": "number"
+      },
+      
+      "validationAgent": {
+        "timestampStart": "ISO datetime | null",
+        "timestampCompleted": "ISO datetime | null",
+        "latencyMs": "number | null",
+        "schemaValidationFailures": "number",
+        "guardrailTriggers": "string[]",
+        "riskFlags": "string[]",
+        "validationPassed": "boolean | null",
+        "errors": "number"
+      },
+      
+      "executionAgent": {
+        "timestampStart": "ISO datetime | null",
+        "timestampCompleted": "ISO datetime | null",
+        "latencyMs": "number | null",
+        "toolCalls": "number",
+        "apiCalls": "number",
+        "apiSuccess": "boolean | null",
+        "dataUpdated": "boolean | null",
+        "errors": "number"
+      },
+      
+      "responseAgent": {
+        "timestampStart": "ISO datetime | null",
+        "timestampCompleted": "ISO datetime | null",
+        "latencyMs": "number | null",
+        "responseType": "success | confirmation | error | null",
+        "messageLength": "number | null",
+        "errors": "number"
+      },
+      
+      "llm": {
+        "promptTokens": "number",
+        "completionTokens": "number",
+        "totalTokens": "number",
+        "contextUsagePct": "number",
+        "latencyMs": "number | null",
+        "retryCount": "number",
+        "model": "string"
+      },
+      
+      "api": {
+        "apiLatencyMs": "number | null",
+        "fileWriteMs": "number | null",
+        "endpoint": "string | null",
+        "method": "string | null",
+        "statusCode": "number | null",
+        "errors": "number"
+      }
+    },
+    
+    "state": {
+      "currentStep": "IDLE | PLANNING | VALIDATING | EXECUTING | RESPONDING | COMPLETED | FAILED",
+      "workflowStatus": "IDLE | PENDING_CONFIRMATION | EXECUTING | COMPLETED | FAILED",
+      
+      "plan": {
+        "intent": "string | null",
+        "entities": "object | null",
+        "confidence": "number | null"
+      },
+      
+      "validation": {
+        "valid": "boolean | null",
+        "riskFlag": "string | null",
+        "errors": "string[]",
+        "entityExists": "boolean | null",
+        "businessRulesPassed": "boolean | null",
+        "requiresConfirmation": "boolean",
+        "oldValue": "any | null",
+        "newValue": "any | null",
+        "deviationPercent": "number | null"
+      },
+      
+      "execution": {
+        "success": "boolean | null",
+        "data": "object | null",
+        "error": "string | null",
+        "apiResponse": "object | null"
+      },
+      
+      "response": {
+        "message": "string | null",
+        "responseType": "success | confirmation | error | null"
+      },
+      
+      "pendingAction": {
+        "intent": "string | null",
+        "entity": "object | null",
+        "riskFlag": "string | null",
+        "originalValue": "any | null",
+        "requestedValue": "any | null"
+      },
+      
+      "conversationSummary": "string | null"
+    }
+  }
+}
+```
+
+==================================================
+52. How Each Agent Uses This Schema:
+==================================================
+PlannerAgent Fills:
+```typescript
+universalState.state.plan = {
+  intent: "UPDATE_PRODUCT_PRICE",
+  entities: { sku: "SKU-001", newPrice: 49.99 },
+  confidence: 0.96
+};
+
+universalState.metrics.plannerAgent = {
+  timestampStart: "2026-01-29T10:11:00.000Z",
+  timestampCompleted: "2026-01-29T10:11:00.045Z",
+  latencyMs: 45,
+  intent: "UPDATE_PRODUCT_PRICE",
+  intentConfidence: 0.96,
+  entitiesExtracted: 2,
+  llmCalls: 1,
+  errors: 0
+};
+
+universalState.state.currentStep = "PLANNING";
+```
+
+ValidationAgent Fills:
+```typescript
+universalState.state.validation = {
+  valid: true,
+  riskFlag: null,
+  errors: [],
+  entityExists: true,
+  businessRulesPassed: true,
+  requiresConfirmation: false,
+  oldValue: 39.99,
+  newValue: 49.99,
+  deviationPercent: 25.0
+};
+
+universalState.metrics.validationAgent = {
+  timestampStart: "2026-01-29T10:11:00.045Z",
+  timestampCompleted: "2026-01-29T10:11:00.120Z",
+  latencyMs: 75,
+  schemaValidationFailures: 0,
+  guardrailTriggers: [],
+  riskFlags: [],
+  validationPassed: true,
+  errors: 0
+};
+
+universalState.state.currentStep = "VALIDATING";
+```
+
+ExecutionAgent Fills:
+```typescript
+universalState.state.execution = {
+  success: true,
+  data: {
+    sku: "SKU-001",
+    oldPrice: 39.99,
+    newPrice: 49.99,
+    productName: "Sample Product",
+    updatedAt: "2026-01-29T10:11:00.280Z"
+  },
+  error: null,
+  apiResponse: {
+    statusCode: 200,
+    message: "Product price updated successfully"
+  }
+};
+
+universalState.metrics.executionAgent = {
+  timestampStart: "2026-01-29T10:11:00.120Z",
+  timestampCompleted: "2026-01-29T10:11:00.280Z",
+  latencyMs: 160,
+  toolCalls: 1,
+  apiCalls: 1,
+  apiSuccess: true,
+  dataUpdated: true,
+  errors: 0
+};
+
+universalState.metrics.api = {
+  apiLatencyMs: 41,
+  fileWriteMs: 12,
+  endpoint: "/api/v1/products/SKU-001/price",
+  method: "PUT",
+  statusCode: 200,
+  errors: 0
+};
+
+universalState.state.currentStep = "EXECUTING";
+```
+
+ResponseAgent Fills:
+```typescript
+universalState.state.response = {
+  message: "✅ Successfully updated the price of Sample Product (SKU-001) from $39.99 to $49.99.",
+  responseType: "success"
+};
+
+universalState.metrics.responseAgent = {
+  timestampStart: "2026-01-29T10:11:00.280Z",
+  timestampCompleted: "2026-01-29T10:11:00.340Z",
+  latencyMs: 60,
+  responseType: "success",
+  messageLength: 87,
+  errors: 0
+};
+
+universalState.state.currentStep = "RESPONDING";
+universalState.state.workflowStatus = "COMPLETED";
+```
+
+WorkflowAgent Updates:
+```typescript
+// At workflow start
+universalState.metrics.workflowTimestampStart = "2026-01-29T10:11:00.000Z";
+universalState.state.workflowStatus = "EXECUTING";
+universalState.state.currentStep = "PLANNING";
+
+// At workflow completion
+universalState.metrics.workflowTimestampEnd = "2026-01-29T10:11:00.340Z";
+universalState.metrics.totalLatencyMs = 340;
+universalState.metrics.agentSteps = 4;
+universalState.metrics.success = true;
+universalState.state.workflowStatus = "COMPLETED";
+universalState.state.currentStep = "COMPLETED";
+```
+
+HITL Scenario (Price Outlier):
+```typescript
+// When validation detects price outlier
+universalState.state.validation = {
+  valid: false,
+  riskFlag: "PRICE_OUTLIER",
+  errors: ["Price deviation 92% exceeds 40% threshold"],
+  entityExists: true,
+  businessRulesPassed: false,
+  requiresConfirmation: true,
+  oldValue: 890,
+  newValue: 67,
+  deviationPercent: 92.47
+};
+
+universalState.state.pendingAction = {
+  intent: "UPDATE_PRODUCT_PRICE",
+  entity: { sku: "PD-1067", newPrice: 67 },
+  riskFlag: "PRICE_OUTLIER",
+  originalValue: 890,
+  requestedValue: 67
+};
+
+universalState.state.workflowStatus = "PENDING_CONFIRMATION";
+universalState.state.currentStep = "VALIDATING";
+```
+
+==================================================
+53. Key Benefits of Universal Schema:
+==================================================
+1. Single Source of Truth:
+   - Every agent reads/writes to the same schema
+   - No data duplication
+   - Consistent state across all agents
+
+2. Complete Traceability:
+   - All metrics and state in one place
+   - Easy to reconstruct workflow execution
+   - Full audit trail
+
+3. Easy Debugging:
+   - Check universalState.state.currentStep to see where you are
+   - Inspect any agent's output at any point
+   - Notebook-style debugging tool
+
+4. Metrics Ready:
+   - All timing/performance data captured automatically
+   - Per-agent metrics tracked
+   - Workflow-level metrics aggregated
+
+5. HITL Support:
+   - pendingAction tracks confirmation workflows
+   - workflowStatus shows PENDING_CONFIRMATION state
+   - Easy to resume after confirmation
+
+6. Type Safety:
+   - Can be validated with TypeScript/Zod
+   - Schema ensures data consistency
+   - Prevents state corruption
+
+7. Interview-Ready:
+   - Demonstrates system design thinking
+   - Shows understanding of state management
+   - Production-grade architecture
+
+==================================================
+54. Schema Usage Pattern (TypeScript):
+==================================================
+Type Definition:
+```typescript
+interface UniversalState {
+  inputSchema: {
+    message: string;
+    sessionId: string;
+    traceId: string;
+    workflowId: string;
+    timestamp: string;
+  };
+  metrics: {
+    workflowTimestampStart: string;
+    workflowTimestampEnd: string | null;
+    totalLatencyMs: number | null;
+    agentSteps: number;
+    success: boolean | null;
+    retries: number;
+    plannerAgent: AgentMetrics;
+    validationAgent: AgentMetrics;
+    executionAgent: AgentMetrics;
+    responseAgent: AgentMetrics;
+    llm: LLMMetrics;
+    api: APIMetrics;
+  };
+  state: {
+    currentStep: WorkflowStep;
+    workflowStatus: WorkflowStatus;
+    plan: PlanState | null;
+    validation: ValidationState | null;
+    execution: ExecutionState | null;
+    response: ResponseState | null;
+    pendingAction: PendingAction | null;
+    conversationSummary: string | null;
+  };
+}
+```
+
+Usage in WorkflowAgent:
+```typescript
+export const AdminWorkflow = new WorkflowAgent({
+  name: "admin_workflow",
+  run: async (ctx) => {
+    // Initialize universal state
+    const universalState: UniversalState = {
+      inputSchema: {
+        message: ctx.input.message,
+        sessionId: ctx.session.id,
+        traceId: ctx.traceId,
+        workflowId: ctx.workflowId,
+        timestamp: new Date().toISOString()
+      },
+      metrics: {
+        workflowTimestampStart: new Date().toISOString(),
+        workflowTimestampEnd: null,
+        totalLatencyMs: null,
+        agentSteps: 0,
+        success: null,
+        retries: 0,
+        // ... initialize all metrics
+      },
+      state: {
+        currentStep: "IDLE",
+        workflowStatus: "IDLE",
+        plan: null,
+        validation: null,
+        execution: null,
+        response: null,
+        pendingAction: null,
+        conversationSummary: null
+      }
+    };
+
+    // Store in workflow state
+    ctx.state.universalState = universalState;
+
+    // PlannerAgent updates universalState.state.plan
+    // ValidationAgent updates universalState.state.validation
+    // ExecutionAgent updates universalState.state.execution
+    // ResponseAgent updates universalState.state.response
+
+    return universalState;
+  }
+});
+```
+
+Access Pattern:
+```typescript
+// In any agent
+const universalState = ctx.state.universalState;
+
+// Read previous agent's output
+const plan = universalState.state.plan;
+
+// Update current agent's state
+universalState.state.validation = {
+  valid: true,
+  // ...
+};
+
+// Update metrics
+universalState.metrics.validationAgent.timestampStart = new Date().toISOString();
+```
+
+==================================================
+55. Schema as Notebook-Style Debugging Tool:
+==================================================
+This schema is your notebook-style debugging tool - you can inspect it at any point and see exactly what happened!
+
+Example Debug Session:
+```typescript
+// At any breakpoint, inspect:
+console.log("Current Step:", universalState.state.currentStep);
+console.log("Workflow Status:", universalState.state.workflowStatus);
+console.log("Plan:", universalState.state.plan);
+console.log("Validation:", universalState.state.validation);
+console.log("Execution:", universalState.state.execution);
+console.log("Response:", universalState.state.response);
+
+// Check metrics
+console.log("Total Latency:", universalState.metrics.totalLatencyMs);
+console.log("Planner Latency:", universalState.metrics.plannerAgent.latencyMs);
+console.log("Validation Latency:", universalState.metrics.validationAgent.latencyMs);
+
+// Check for errors
+console.log("Planner Errors:", universalState.metrics.plannerAgent.errors);
+console.log("Validation Errors:", universalState.metrics.validationAgent.errors);
+console.log("Execution Errors:", universalState.metrics.executionAgent.errors);
+
+// Check HITL state
+if (universalState.state.workflowStatus === "PENDING_CONFIRMATION") {
+  console.log("Pending Action:", universalState.state.pendingAction);
+}
+```
+
+This allows you to:
+- See exactly where the workflow is
+- Inspect any agent's output
+- Debug performance issues
+- Trace errors
+- Understand HITL state
+
+All in one place! 🎯
+
+==================================================
+56. Schema Persistence Strategy:
+==================================================
+Where to Store:
+- In-memory: During workflow execution (fast access)
+- Workflow State: For multi-turn conversations
+- JSON Snapshot: For debugging and audit (workflow.state.json)
+
+Persistence Format:
+```json
+{
+  "workflowId": "SHOP-7788",
+  "traceId": "t-101",
+  "sessionId": "sess-abc123",
+  "universalState": {
+    // ... full schema
+  },
+  "snapshotTimestamp": "2026-01-29T10:11:00.340Z"
+}
+```
+
+Benefits:
+- Can resume workflows from snapshot
+- Full audit trail
+- Easy to debug production issues
+- Can replay workflows for testing
+
+This universal schema is the backbone of your agent system - it ensures consistency, traceability, and debuggability throughout the entire workflow.
