@@ -859,3 +859,42 @@ body {
     display: none;
   }
 }
+
+/* Confirmation buttons */
+.confirmation-buttons {
+  display: flex;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.confirm-btn,
+.cancel-btn {
+  flex: 1;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.confirm-btn {
+  background: #2ecc71;
+  color: white;
+}
+
+.confirm-btn:hover {
+  background: #27ae60;
+  transform: translateY(-1px);
+}
+
+.cancel-btn {
+  background: #e74c3c;
+  color: white;
+}
+
+.cancel-btn:hover {
+  background: #c0392b;
+  transform: translateY(-1px);
+}

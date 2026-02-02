@@ -465,6 +465,19 @@ function scrollToBottom() {
   messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
+// Get or create session ID
+function getSessionId() {
+  let sessionId = sessionStorage.getItem('admin-session-id');
+  if (!sessionId) {
+    sessionId = 'admin-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+    sessionStorage.setItem('admin-session-id', sessionId);
+  }
+  return sessionId;
+}
+
+// Store pending confirmation state
+let pendingConfirmation = null;
+
 // Handle chatbot form submission
 async function handleChatbotSubmit(event) {
   event.preventDefault();
@@ -472,7 +485,23 @@ async function handleChatbotSubmit(event) {
   const input = document.getElementById('chatbot-input');
   const message = input.value.trim();
   
-  if (!message) return;
+  // Basic validation
+  if (!message) {
+    addMessage('Please enter your question or message.', false);
+    return;
+  }
+  
+  if (message.length < 2) {
+    addMessage('Please enter at least 2 characters.', false);
+    return;
+  }
+  
+  // Check if this is a confirmation
+  if (pendingConfirmation && message.toUpperCase().includes('CONFIRM')) {
+    await handleConfirmation(true);
+    input.value = '';
+    return;
+  }
   
   // Clear input
   input.value = '';
@@ -490,28 +519,149 @@ async function handleChatbotSubmit(event) {
   inputField.disabled = true;
   
   try {
-    // TODO: Replace with actual API call when backend is ready
-    // For now, simulate a response
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Call agent API
+    const sessionId = getSessionId();
+    const response = await fetch('/agent/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: message,
+        sessionId: sessionId
+      })
+    });
     
-    // Simulate response (remove this when backend is ready)
-    const responses = [
-      "I understand you want to: " + message + ". The backend agent service is not yet implemented, but I'm ready to help once it's connected!",
-      "Got it! I'll process: " + message + ". The agent service will be connected soon.",
-      "I received your request: " + message + ". Waiting for backend integration..."
-    ];
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
     
-    const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+    const data = await response.json();
     
+    // Remove loading message
     removeLoadingMessage();
-    addMessage(randomResponse, false);
     
+    // Handle confirmation request
+    if (data.requiresConfirmation && data.workflowId) {
+      pendingConfirmation = {
+        workflowId: data.workflowId,
+        sessionId: sessionId
+      };
+      addMessage(data.message, false);
+      
+      // Add confirmation button
+      addConfirmationButtons(data.workflowId, sessionId);
+    } else {
+      // Regular response
+      addMessage(data.message || 'I apologize, but I couldn\'t process your request.', false);
+      
+      // Refresh data if operation was successful
+      if (data.message && data.message.includes('✅')) {
+        // Refresh orders and products to show updated data
+        setTimeout(() => {
+          loadRecentOrders();
+          loadProducts();
+        }, 500);
+      }
+    }
   } catch (error) {
+    console.error('Error calling agent:', error);
     removeLoadingMessage();
-    addMessage("Sorry, I encountered an error. Please try again later.", false);
-    console.error('Chatbot error:', error);
+    addMessage('Sorry, I encountered an error. Please try again.', false);
   } finally {
-    // Re-enable input
+    sendButton.disabled = false;
+    inputField.disabled = false;
+    inputField.focus();
+  }
+}
+
+// Handle confirmation
+async function handleConfirmation(confirmed) {
+  if (!pendingConfirmation) return;
+  
+  const { workflowId, sessionId } = pendingConfirmation;
+  
+  // Add loading indicator
+  addLoadingMessage();
+  
+  try {
+    const response = await fetch('/agent/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        workflowId: workflowId,
+        sessionId: sessionId,
+        confirmed: confirmed
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // Remove loading message
+    removeLoadingMessage();
+    
+    // Clear pending confirmation
+    pendingConfirmation = null;
+    
+    // Remove confirmation buttons
+    removeConfirmationButtons();
+    
+    // Show result
+    addMessage(data.message || (confirmed ? 'Action confirmed and executed.' : 'Action cancelled.'), false);
+    
+    // Refresh data if confirmed and successful
+    if (confirmed && data.message && data.message.includes('✅')) {
+      setTimeout(() => {
+        loadRecentOrders();
+        loadProducts();
+      }, 500);
+    }
+  } catch (error) {
+    console.error('Error handling confirmation:', error);
+    removeLoadingMessage();
+    addMessage('Sorry, I encountered an error processing your confirmation.', false);
+  }
+}
+
+// Add confirmation buttons
+function addConfirmationButtons(workflowId, sessionId) {
+  const messagesContainer = document.getElementById('chatbot-messages');
+  const buttonDiv = document.createElement('div');
+  buttonDiv.className = 'message assistant';
+  buttonDiv.id = 'confirmation-buttons';
+  
+  buttonDiv.innerHTML = `
+    <div class="message-avatar">💬</div>
+    <div class="message-content">
+      <div class="message-bubble confirmation-buttons">
+        <button class="confirm-btn" onclick="handleConfirmation(true)">✅ Confirm</button>
+        <button class="cancel-btn" onclick="handleConfirmation(false)">❌ Cancel</button>
+      </div>
+    </div>
+  `;
+  
+  messagesContainer.appendChild(buttonDiv);
+  scrollToBottom();
+}
+
+// Remove confirmation buttons
+function removeConfirmationButtons() {
+  const buttons = document.getElementById('confirmation-buttons');
+  if (buttons) {
+    buttons.remove();
+      }
+    }
+  } catch (error) {
+    console.error('Error calling agent:', error);
+    removeLoadingMessage();
+    addMessage('Sorry, I encountered an error. Please try again.', false);
+  } finally {
     sendButton.disabled = false;
     inputField.disabled = false;
     inputField.focus();

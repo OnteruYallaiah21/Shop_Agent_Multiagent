@@ -33,7 +33,67 @@
       <div id="empty" class="empty" style="display: none;">No products found</div>
     </div>
   </div>
+
+  <!-- Chatbot Toggle Button -->
+  <button id="chatbot-toggle" class="chatbot-toggle" aria-label="Open StorePilot">
+    <span class="chatbot-icon">💬</span>
+    <span class="chatbot-badge">StorePilot</span>
+  </button>
+
+  <!-- Chatbot Side Panel -->
+  <div id="chatbot-panel" class="chatbot-panel">
+    <div class="chatbot-header">
+      <div class="chatbot-title">
+        <span class="chatbot-icon-large">💬</span>
+        <div>
+          <h3>StorePilot</h3>
+          <p class="chatbot-tagline">Control your store with natural language.</p>
+        </div>
+      </div>
+      <button id="chatbot-close" class="chatbot-close" aria-label="Close StorePilot">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+    
+    <div id="chatbot-messages" class="chatbot-messages">
+      <div class="chatbot-welcome">
+        <div class="welcome-message">
+          <p>👋 Hello! I'm <strong>StorePilot</strong>, your AI assistant.</p>
+          <p>I can help you find products and answer questions. Try asking me:</p>
+          <ul>
+            <li>"Show me headphones"</li>
+            <li>"What products do you have?"</li>
+            <li>"Tell me about product SKU-001"</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="chatbot-input-container">
+      <form id="chatbot-form" class="chatbot-form">
+        <input 
+          type="text" 
+          id="chatbot-input" 
+          class="chatbot-input" 
+          placeholder="Ask me anything about products..."
+          autocomplete="off"
+        />
+        <button type="submit" id="chatbot-send" class="chatbot-send" aria-label="Send message">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </form>
+      <div id="product-suggestions" class="product-suggestions"></div>
+    </div>
+  </div>
   
+  <link rel="stylesheet" href="/storefront-chatbot.css">
   <script src="/script.js"></script>
+  <script src="/storefront-chatbot.js"></script>
 </body>
 </html>
