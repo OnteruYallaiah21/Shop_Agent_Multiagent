@@ -1,8 +1,57 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-const SEED_DIR = path.join(__dirname, '../../data/seed');
-const DYNAMIC_DIR = path.join(__dirname, '../../data/dynamic');
+// Find project root directory - works in both compiled and source code
+function getProjectRoot(): string {
+  // Try multiple strategies to find project root
+  let currentDir = __dirname;
+  
+  // If running from dist/, go up to project root
+  if (currentDir.includes('dist')) {
+    // Remove 'dist/utils' or 'dist/...' and go to project root
+    const distIndex = currentDir.indexOf('dist');
+    if (distIndex !== -1) {
+      return currentDir.substring(0, distIndex);
+    }
+  }
+  
+  // If running from source, go up to project root
+  if (currentDir.includes('src')) {
+    const srcIndex = currentDir.indexOf('src');
+    if (srcIndex !== -1) {
+      return currentDir.substring(0, srcIndex);
+    }
+  }
+  
+  // Fallback: use process.cwd() (current working directory)
+  // This works when running from project root
+  const cwd = process.cwd();
+  
+  // Check if cwd has data/seed directory
+  if (fs.existsSync(path.join(cwd, 'data', 'seed'))) {
+    return cwd;
+  }
+  
+  // Last resort: go up from __dirname until we find data/seed
+  let dir = currentDir;
+  while (dir !== path.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, 'data', 'seed'))) {
+      return dir;
+    }
+    dir = path.dirname(dir);
+  }
+  
+  // If all else fails, use __dirname relative path (original behavior)
+  return path.join(__dirname, '../..');
+}
+
+const PROJECT_ROOT = getProjectRoot();
+const SEED_DIR = path.join(PROJECT_ROOT, 'data/seed');
+const DYNAMIC_DIR = path.join(PROJECT_ROOT, 'data/dynamic');
+
+console.log(`[Storage] Project root: ${PROJECT_ROOT}`);
+console.log(`[Storage] Seed dir: ${SEED_DIR}`);
+console.log(`[Storage] Dynamic dir: ${DYNAMIC_DIR}`);
 
 // Ensure data directories exist
 if (!fs.existsSync(SEED_DIR)) {
@@ -42,14 +91,30 @@ function ensureDynamicFile(filename: string): void {
   const seedPath = path.join(SEED_DIR, `${filename}.json`);
   const dynamicPath = path.join(DYNAMIC_DIR, `${filename}.json`);
   
+  // Ensure dynamic directory exists
+  if (!fs.existsSync(DYNAMIC_DIR)) {
+    fs.mkdirSync(DYNAMIC_DIR, { recursive: true });
+    console.log(`[Storage] Created dynamic directory: ${DYNAMIC_DIR}`);
+  }
+  
   // If dynamic file doesn't exist and seed file does, copy it
-  if (!fs.existsSync(dynamicPath) && fs.existsSync(seedPath)) {
-    try {
-      fs.copyFileSync(seedPath, dynamicPath);
-      console.log(`Copied ${filename}.json from seed to dynamic`);
-    } catch (error) {
-      console.error(`Error copying ${filename}.json:`, error);
+  if (!fs.existsSync(dynamicPath)) {
+    if (fs.existsSync(seedPath)) {
+      try {
+        fs.copyFileSync(seedPath, dynamicPath);
+        console.log(`[Storage] ✅ Copied ${filename}.json from seed to dynamic`);
+        console.log(`[Storage]   From: ${seedPath}`);
+        console.log(`[Storage]   To: ${dynamicPath}`);
+      } catch (error) {
+        console.error(`[Storage] ❌ Error copying ${filename}.json:`, error);
+        throw error;
+      }
+    } else {
+      console.warn(`[Storage] ⚠️ Seed file not found: ${seedPath}`);
+      console.warn(`[Storage] ⚠️ Dynamic file will be created empty: ${dynamicPath}`);
     }
+  } else {
+    console.log(`[Storage] ✓ Dynamic file already exists: ${dynamicPath}`);
   }
 }
 

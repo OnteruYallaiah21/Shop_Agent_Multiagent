@@ -2,27 +2,83 @@ let currentEditingProduct = null;
 
 // Load recent orders
 async function loadRecentOrders() {
+  console.log('[loadRecentOrders] Starting to load orders...');
   const loadingEl = document.getElementById('orders-loading');
   const errorEl = document.getElementById('orders-error');
   const listEl = document.getElementById('orders-list');
   
+  // Safety check
+  if (!loadingEl || !listEl) {
+    console.error('[loadRecentOrders] DOM elements not found:', { loadingEl: !!loadingEl, listEl: !!listEl });
+    return;
+  }
+  
+  console.log('[loadRecentOrders] DOM elements found, showing loading...');
+  // Show loading, hide error
+  if (loadingEl) loadingEl.style.display = 'block';
+  if (errorEl) errorEl.style.display = 'none';
+  
   try {
+    console.log('[loadRecentOrders] Fetching orders from API...');
     const response = await fetch('/api/orders?limit=10&sortBy=createdAt&sortOrder=desc');
-    const result = await response.json();
     
-    if (!result.success || !result.data) {
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[loadRecentOrders] API Error:', response.status, errorText);
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    console.log('[loadRecentOrders] API Response:', result);
+    
+    if (!result.success) {
       throw new Error(result.error?.message || 'Failed to load orders');
     }
     
-    const orders = result.data.data || result.data || [];
+    // Handle paginated response format
+    let orders = [];
+    if (result.data) {
+      if (Array.isArray(result.data)) {
+        orders = result.data;
+        console.log('[loadRecentOrders] Found orders in result.data (direct array):', orders.length);
+      } else if (result.data.data && Array.isArray(result.data.data)) {
+        orders = result.data.data;
+        console.log('[loadRecentOrders] Found orders in result.data.data (paginated):', orders.length);
+      } else if (result.data.orders && Array.isArray(result.data.orders)) {
+        orders = result.data.orders;
+        console.log('[loadRecentOrders] Found orders in result.data.orders:', orders.length);
+      } else {
+        console.warn('[loadRecentOrders] Unexpected response structure:', result);
+      }
+    } else {
+      console.warn('[loadRecentOrders] No data field in response:', result);
+    }
+    
+    console.log('[loadRecentOrders] Orders loaded:', orders.length);
     
     if (orders.length === 0) {
-      listEl.innerHTML = '<p style="text-align: center; color: #666; padding: 2rem;">No orders found</p>';
-      loadingEl.style.display = 'none';
+      console.warn('[loadRecentOrders] No orders found in response:', result);
+      if (listEl) listEl.innerHTML = '<p style="text-align: center; color: #666; padding: 2rem;">No orders found</p>';
+      if (loadingEl) {
+        loadingEl.style.display = 'none';
+        console.log('[loadRecentOrders] Loading element hidden (no orders)');
+      }
+      if (errorEl) errorEl.style.display = 'none';
       return;
     }
     
-    listEl.innerHTML = orders.map(order => {
+    if (!listEl) {
+      console.error('[loadRecentOrders] Orders list element not found');
+      if (loadingEl) {
+        loadingEl.style.display = 'none';
+        console.log('[loadRecentOrders] Loading element hidden (no list element)');
+      }
+      return;
+    }
+    
+    console.log('[loadRecentOrders] Rendering', orders.length, 'orders');
+    try {
+      listEl.innerHTML = orders.map(order => {
       const statusClass = order.status.replace(/_/g, '-');
       const date = new Date(order.createdAt).toLocaleDateString();
       const time = new Date(order.createdAt).toLocaleTimeString();
@@ -57,14 +113,33 @@ async function loadRecentOrders() {
           </div>
         </div>
       `;
-    }).join('');
+      }).join('');
+      
+      console.log('[loadRecentOrders] Orders rendered successfully');
+    } catch (renderError) {
+      console.error('[loadRecentOrders] Error rendering orders:', renderError);
+      throw renderError;
+    }
     
-    loadingEl.style.display = 'none';
+    // Hide loading and error elements - IMPORTANT: Do this AFTER rendering
+    if (loadingEl) {
+      loadingEl.style.display = 'none';
+      console.log('[loadRecentOrders] Loading element hidden');
+    }
+    if (errorEl) {
+      errorEl.style.display = 'none';
+    }
   } catch (err) {
-    console.error('Error loading orders:', err);
-    loadingEl.style.display = 'none';
-    errorEl.textContent = 'Failed to load orders: ' + err.message;
-    errorEl.style.display = 'block';
+    console.error('[loadRecentOrders] Error loading orders:', err);
+    if (loadingEl) {
+      loadingEl.style.display = 'none';
+      console.log('[loadRecentOrders] Loading element hidden (error)');
+    }
+    if (errorEl) {
+      errorEl.textContent = 'Failed to load orders: ' + err.message;
+      errorEl.style.display = 'block';
+      console.log('[loadRecentOrders] Error element shown');
+    }
   }
 }
 
@@ -74,6 +149,16 @@ async function loadProducts(searchTerm = '') {
   const errorEl = document.getElementById('products-error');
   const listEl = document.getElementById('products-list');
   
+  // Safety check
+  if (!loadingEl || !listEl) {
+    console.error('Products DOM elements not found');
+    return;
+  }
+  
+  // Show loading, hide error
+  if (loadingEl) loadingEl.style.display = 'block';
+  if (errorEl) errorEl.style.display = 'none';
+  
   try {
     let url = '/api/products?limit=50&sortBy=name&sortOrder=asc';
     if (searchTerm) {
@@ -81,47 +166,106 @@ async function loadProducts(searchTerm = '') {
     }
     
     const response = await fetch(url);
-    const result = await response.json();
     
-    if (!result.success || !result.data) {
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('API Error:', response.status, errorText);
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    console.log('Products API Response:', result);
+    
+    if (!result.success) {
       throw new Error(result.error?.message || 'Failed to load products');
     }
     
-    const products = result.data.data || result.data || [];
+    // Handle paginated response format: { success: true, data: { data: [...], pagination: {...} } }
+    let products = [];
+    if (result.data) {
+      if (Array.isArray(result.data)) {
+        // Direct array response
+        products = result.data;
+        console.log('Found products in result.data (direct array):', products.length);
+      } else if (result.data.data && Array.isArray(result.data.data)) {
+        // Paginated response: { data: { data: [...], pagination: {...} } }
+        products = result.data.data;
+        console.log('Found products in result.data.data (paginated):', products.length);
+      } else if (result.data.products && Array.isArray(result.data.products)) {
+        // Alternative format
+        products = result.data.products;
+        console.log('Found products in result.data.products:', products.length);
+      } else {
+        console.warn('Unexpected response structure:', result);
+      }
+    } else {
+      console.warn('No data field in response:', result);
+    }
+    
+    console.log('Products loaded:', products.length);
     
     if (products.length === 0) {
-      listEl.innerHTML = '<p style="text-align: center; color: #666; padding: 2rem;">No products found</p>';
-      loadingEl.style.display = 'none';
+      console.warn('No products found in response:', result);
+      if (listEl) {
+        listEl.innerHTML = '<p style="text-align: center; color: #666; padding: 2rem;">No products found</p>';
+      }
+      if (loadingEl) loadingEl.style.display = 'none';
+      if (errorEl) errorEl.style.display = 'none';
       return;
     }
     
-    listEl.innerHTML = products.map(product => {
-      const defaultVariant = product.variants.find(v => v.isDefault) || product.variants[0];
-      const price = defaultVariant ? defaultVariant.price : 0;
-      
-      return `
-        <div class="product-item">
-          <div class="product-info">
-            <div class="product-name">${escapeHtml(product.name)}</div>
-            <div class="product-details">
-              Status: ${escapeHtml(product.status)} | 
-              Price: $${price.toFixed(2)} | 
-              Variants: ${product.variants.length}
+    if (!listEl) {
+      console.error('Products list element not found');
+      if (loadingEl) loadingEl.style.display = 'none';
+      return;
+    }
+    
+    console.log('Rendering', products.length, 'products');
+    try {
+      listEl.innerHTML = products.map(product => {
+        // Safety check for variants
+        const variants = product.variants || [];
+        const defaultVariant = variants.find(v => v.isDefault) || variants[0];
+        const price = defaultVariant ? (defaultVariant.price || 0) : 0;
+        
+        return `
+          <div class="product-item">
+            <div class="product-info">
+              <div class="product-name">${escapeHtml(product.name || 'Unnamed Product')}</div>
+              <div class="product-details">
+                Status: ${escapeHtml(product.status || 'unknown')} | 
+                Price: $${price.toFixed(2)} | 
+                Variants: ${variants.length}
+              </div>
+            </div>
+            <div class="product-actions">
+              <button class="btn btn-edit" onclick="editProduct('${product.id}')">Edit</button>
             </div>
           </div>
-          <div class="product-actions">
-            <button class="btn btn-edit" onclick="editProduct('${product.id}')">Edit</button>
-          </div>
-        </div>
-      `;
-    }).join('');
+        `;
+      }).join('');
+      
+      console.log('Products rendered successfully');
+    } catch (renderError) {
+      console.error('Error rendering products:', renderError);
+      throw renderError;
+    }
     
-    loadingEl.style.display = 'none';
+    // Hide loading and error elements - IMPORTANT: Do this AFTER rendering
+    if (loadingEl) {
+      loadingEl.style.display = 'none';
+      console.log('Loading element hidden');
+    }
+    if (errorEl) {
+      errorEl.style.display = 'none';
+    }
   } catch (err) {
     console.error('Error loading products:', err);
-    loadingEl.style.display = 'none';
-    errorEl.textContent = 'Failed to load products: ' + err.message;
-    errorEl.style.display = 'block';
+    if (loadingEl) loadingEl.style.display = 'none';
+    if (errorEl) {
+      errorEl.textContent = 'Failed to load products: ' + err.message;
+      errorEl.style.display = 'block';
+    }
   }
 }
 
@@ -239,12 +383,15 @@ function escapeHtml(text) {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', () => {
+  console.log('Admin page loaded, initializing...');
+  
   // Initialize LLM provider selection
   initLLMProviderSelection();
   
   // Load initial data
-  loadRecentOrders();
-  loadProducts();
+  console.log('Loading orders and products...');
+  loadRecentOrders().catch(err => console.error('Failed to load orders:', err));
+  loadProducts().catch(err => console.error('Failed to load products:', err));
   
   // Search products
   document.getElementById('product-search').addEventListener('input', (e) => {
@@ -417,10 +564,21 @@ function addMessage(text, isUser = false) {
   
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   
+  // Format text: preserve line breaks and basic formatting
+  let formattedText = escapeHtml(text);
+  // Convert \n\n to double line breaks
+  formattedText = formattedText.replace(/\n\n/g, '<br><br>');
+  // Convert single \n to line breaks
+  formattedText = formattedText.replace(/\n/g, '<br>');
+  // Convert **text** to <strong>text</strong>
+  formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  // Convert numbered lists (1. text) to better formatting
+  formattedText = formattedText.replace(/(\d+)\.\s/g, '<strong>$1.</strong> ');
+  
   messageDiv.innerHTML = `
     <div class="message-avatar">${isUser ? '👤' : '💬'}</div>
     <div class="message-content">
-      <div class="message-bubble">${escapeHtml(text)}</div>
+      <div class="message-bubble">${formattedText}</div>
       <div class="message-time">${time}</div>
     </div>
   `;
@@ -465,6 +623,19 @@ function scrollToBottom() {
   messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
+// Get or create session ID
+function getSessionId() {
+  let sessionId = sessionStorage.getItem('admin-session-id');
+  if (!sessionId) {
+    sessionId = 'admin-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+    sessionStorage.setItem('admin-session-id', sessionId);
+  }
+  return sessionId;
+}
+
+// Store pending confirmation state
+let pendingConfirmation = null;
+
 // Handle chatbot form submission
 async function handleChatbotSubmit(event) {
   event.preventDefault();
@@ -472,7 +643,23 @@ async function handleChatbotSubmit(event) {
   const input = document.getElementById('chatbot-input');
   const message = input.value.trim();
   
-  if (!message) return;
+  // Basic validation
+  if (!message) {
+    addMessage('Please enter your question or message.', false);
+    return;
+  }
+  
+  if (message.length < 2) {
+    addMessage('Please enter at least 2 characters.', false);
+    return;
+  }
+  
+  // Check if this is a confirmation
+  if (pendingConfirmation && message.toUpperCase().includes('CONFIRM')) {
+    await handleConfirmation(true);
+    input.value = '';
+    return;
+  }
   
   // Clear input
   input.value = '';
@@ -490,31 +677,166 @@ async function handleChatbotSubmit(event) {
   inputField.disabled = true;
   
   try {
-    // TODO: Replace with actual API call when backend is ready
-    // For now, simulate a response
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Call agent API
+    const sessionId = getSessionId();
+    const response = await fetch('/agent/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: message,
+        sessionId: sessionId
+      })
+    });
     
-    // Simulate response (remove this when backend is ready)
-    const responses = [
-      "I understand you want to: " + message + ". The backend agent service is not yet implemented, but I'm ready to help once it's connected!",
-      "Got it! I'll process: " + message + ". The agent service will be connected soon.",
-      "I received your request: " + message + ". Waiting for backend integration..."
-    ];
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
     
-    const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+    const data = await response.json();
     
+    // Remove loading message
     removeLoadingMessage();
-    addMessage(randomResponse, false);
     
+    // Check for errors in response (including API key errors)
+    if (data.error || 
+        (data.message && (
+          data.message.includes('Error:') || 
+          data.message.includes('❌') || 
+          data.message.includes('🔑') ||
+          data.message.includes('API Key') ||
+          data.message.includes('API key') ||
+          data.message.includes('GROQ_API_KEY') ||
+          data.message.includes('GEMINI_API_KEY') ||
+          data.message.includes('No LLM provider')
+        ))) {
+      console.error('[Chatbot] Error in agent response:', data);
+      addMessage(data.message || 'Sorry, I encountered an error. Please try again.', false);
+      return;
+    }
+    
+    // Handle confirmation request
+    if (data.requiresConfirmation && data.workflowId) {
+      pendingConfirmation = {
+        workflowId: data.workflowId,
+        sessionId: sessionId
+      };
+      addMessage(data.message, false);
+      
+      // Add confirmation button
+      addConfirmationButtons(data.workflowId, sessionId);
+    } else {
+      // Regular response
+      addMessage(data.message || 'I apologize, but I couldn\'t process your request.', false);
+      
+      // Refresh data if operation was successful
+      if (data.message && data.message.includes('✅')) {
+        // Refresh orders and products to show updated data
+        setTimeout(() => {
+          loadRecentOrders();
+          loadProducts();
+        }, 500);
+      }
+    }
   } catch (error) {
+    console.error('[Chatbot] Error calling agent:', error);
     removeLoadingMessage();
-    addMessage("Sorry, I encountered an error. Please try again later.", false);
-    console.error('Chatbot error:', error);
+    
+    // Show detailed error message
+    let errorMessage = 'Sorry, I encountered an error. Please try again.';
+    if (error.message) {
+      errorMessage = error.message;
+    }
+    
+    addMessage(errorMessage, false);
   } finally {
-    // Re-enable input
     sendButton.disabled = false;
     inputField.disabled = false;
     inputField.focus();
+  }
+}
+
+// Handle confirmation
+async function handleConfirmation(confirmed) {
+  if (!pendingConfirmation) return;
+  
+  const { workflowId, sessionId } = pendingConfirmation;
+  
+  // Add loading indicator
+  addLoadingMessage();
+  
+  try {
+    const response = await fetch('/agent/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        workflowId: workflowId,
+        sessionId: sessionId,
+        confirmed: confirmed
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // Remove loading message
+    removeLoadingMessage();
+    
+    // Clear pending confirmation
+    pendingConfirmation = null;
+    
+    // Remove confirmation buttons
+    removeConfirmationButtons();
+    
+    // Show result
+    addMessage(data.message || (confirmed ? 'Action confirmed and executed.' : 'Action cancelled.'), false);
+    
+    // Refresh data if confirmed and successful
+    if (confirmed && data.message && data.message.includes('✅')) {
+      setTimeout(() => {
+        loadRecentOrders();
+        loadProducts();
+      }, 500);
+    }
+  } catch (error) {
+    console.error('Error handling confirmation:', error);
+    removeLoadingMessage();
+    addMessage('Sorry, I encountered an error processing your confirmation.', false);
+  }
+}
+
+// Add confirmation buttons
+function addConfirmationButtons(workflowId, sessionId) {
+  const messagesContainer = document.getElementById('chatbot-messages');
+  const buttonDiv = document.createElement('div');
+  buttonDiv.className = 'message assistant';
+  buttonDiv.id = 'confirmation-buttons';
+  
+  buttonDiv.innerHTML = `
+    <div class="message-avatar">💬</div>
+    <div class="message-content">
+      <div class="message-bubble confirmation-buttons">
+        <button class="confirm-btn" onclick="handleConfirmation(true)">✅ Confirm</button>
+        <button class="cancel-btn" onclick="handleConfirmation(false)">❌ Cancel</button>
+      </div>
+    </div>
+  `;
+  
+  messagesContainer.appendChild(buttonDiv);
+  scrollToBottom();
+}
+
+// Remove confirmation buttons
+function removeConfirmationButtons() {
+  const buttons = document.getElementById('confirmation-buttons');
+  if (buttons) {
+    buttons.remove();
   }
 }
 

@@ -36,8 +36,14 @@ export class PromptRegistryManager {
   private promptCache: Map<string, string> = new Map();
 
   constructor(registryPath?: string, promptsDir?: string) {
-    this.registryPath = registryPath || path.join(__dirname, 'registry.json');
-    this.promptsDir = promptsDir || path.join(__dirname);
+    // In compiled code, __dirname points to dist/prompts
+    // We need to resolve to src/prompts for source files
+    const sourceDir = __dirname.includes('dist') 
+      ? path.join(__dirname, '..', 'src', 'prompts')
+      : __dirname;
+    
+    this.registryPath = registryPath || path.join(sourceDir, 'registry.json');
+    this.promptsDir = promptsDir || sourceDir;
     this.loadRegistry();
   }
 
