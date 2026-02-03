@@ -82,6 +82,51 @@ function getPromotionById(args: { promotionId: string }): {
 // ============================================================================
 
 // ============================================================================
+// Get All Promotions Tool Logic Start Here
+// ============================================================================
+
+/**
+ * Retrieves all promotions in the system.
+ * 
+ * @param args - Optional object with limit and offset for pagination
+ * @returns List of all promotions or error message
+ */
+function getAllPromotions(args?: { limit?: number; offset?: number }): {
+  status: string;
+  promotions?: Promotion[];
+  total?: number;
+  limit?: number;
+  offset?: number;
+  error_message?: string;
+} {
+  try {
+    const promotions = promotionsStorage.getAll();
+    
+    // Apply pagination if provided
+    const limit = args?.limit || promotions.length;
+    const offset = args?.offset || 0;
+    const paginatedPromotions = promotions.slice(offset, offset + limit);
+
+    return {
+      status: 'success',
+      promotions: paginatedPromotions,
+      total: promotions.length,
+      limit: limit,
+      offset: offset,
+    };
+  } catch (error) {
+    return {
+      status: 'error',
+      error_message: `Failed to retrieve promotions: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    };
+  }
+}
+
+// ============================================================================
+// Get All Promotions Tool Logic End Here
+// ============================================================================
+
+// ============================================================================
 // Activate Promotion Tool Logic Start Here
 // ============================================================================
 
@@ -272,6 +317,9 @@ function getPromotionUsage(args: { promotionId: string }): {
 // Get Promotion Usage Tool Logic End Here
 // ============================================================================
 
+// Export the underlying function for direct use
+export { getAllPromotions };
+
 // ============================================================================
 // ADK Function Tools Export
 // ============================================================================
@@ -287,6 +335,20 @@ export const getPromotionByIdTool = new FunctionTool({
     promotionId: z.string().describe('The unique identifier (ID) of the promotion to retrieve'),
   }),
   execute: getPromotionById,
+});
+
+/**
+ * Tool to get all promotions in the system.
+ * Used by agents to list all available promotions when user asks "what promotions do you have", "show all promotions", "list promotions", etc.
+ */
+export const getAllPromotionsTool = new FunctionTool({
+  name: 'get_all_promotions',
+  description: 'Retrieves all promotions in the system. Use this when user asks "what promotions do you have", "show all promotions", "list promotions", etc. Returns a list of all promotions with their details including name, status, discount type, and discount value. Optional pagination parameters (limit, offset) can be provided.',
+  parameters: z.object({
+    limit: z.number().optional().describe('Maximum number of promotions to return (default: all promotions)'),
+    offset: z.number().optional().describe('Number of promotions to skip for pagination (default: 0)'),
+  }),
+  execute: getAllPromotions,
 });
 
 /**

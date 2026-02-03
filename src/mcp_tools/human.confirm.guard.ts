@@ -138,7 +138,7 @@ export function checkHighRiskOperation(
 ): ConfirmationRequest {
   const highRiskIntents = [
     'UPDATE_PRODUCT_PRICE',
-    'DELETE_PRODUCT',
+    'ARCHIVE_PRODUCT', // DELETE_PRODUCT is FORBIDDEN - use ARCHIVE_PRODUCT instead
     'REFUND_ORDER',
     'INVENTORY_RESET',
   ];

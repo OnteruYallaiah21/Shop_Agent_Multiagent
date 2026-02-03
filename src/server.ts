@@ -183,6 +183,13 @@ app.get('/admin', (req: Request, res: Response) => {
   res.sendFile(path.join(__dirname, '../public/admin.html'));
 });
 
+// Admin chatbot route - standalone StorePilot interface
+app.get('/admin/chat', (req: Request, res: Response) => {
+  // Enable dynamic mode for admin operations
+  enableDynamicMode();
+  res.sendFile(path.join(__dirname, '../public/admin/chat.html'));
+});
+
 // Serve admin static files
 app.use('/admin', express.static(path.join(__dirname, '../public/admin')));
 
@@ -248,13 +255,21 @@ app.listen(PORT, () => {
 ║   🛒 Mock E-Commerce API Server                                ║
 ║                                                                ║
 ║   Storefront running on: http://localhost:${PORT}                     ║
-║   API Documentation: http://localhost:${PORT}/api                 ║
-║   Health Check:      http://localhost:${PORT}/health              ║
+║   Admin Dashboard:     http://localhost:${PORT}/admin              ║
+║   StorePilot Chat:     http://localhost:${PORT}/admin/chat         ║
+║   API Documentation:   http://localhost:${PORT}/api                 ║
+║   Health Check:        http://localhost:${PORT}/health              ║
+║   Agent Test Page:     http://localhost:${PORT}/test-agents.html    ║
 ║                                                                ║
 ║   Available Endpoints:                                         ║
 ║   • Products/Inventory: /api/products                          ║
 ║   • Orders:             /api/orders                            ║
 ║   • Promotions:         /api/promotions                        ║
+║   • Agent Service:     /agent/chat                            ║
+║                                                                ║
+║   🧪 ADK Web Interface (run in separate terminal):            ║
+║   npm run adk:web                                              ║
+║   Then open: http://localhost:8000                             ║
 ║                                                                ║
 ╚════════════════════════════════════════════════════════════════╝
   `);

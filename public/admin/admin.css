@@ -214,6 +214,11 @@ body {
   text-align: center;
   padding: 2rem;
   color: #666;
+  display: block; /* Explicitly set display */
+}
+
+.loading.hidden, .error.hidden {
+  display: none !important; /* Force hide when hidden class is added */
 }
 
 .error {

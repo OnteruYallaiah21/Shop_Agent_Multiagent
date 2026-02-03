@@ -19,7 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Load products from seed data
 async function loadProductsData() {
   try {
-    const response = await fetch('/api/v1/products');
+    const response = await fetch('/api/products');
     if (response.ok) {
       const data = await response.json();
       productsData = data.data || [];

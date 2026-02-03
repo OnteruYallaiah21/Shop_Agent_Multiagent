@@ -8,7 +8,7 @@
  * It does NOT use LLM - all logic is deterministic.
  */
 
-import { BaseAgent } from "@google/adk";
+import { BaseAgent, InvocationContext } from "@google/adk";
 import {
   validateSkuExists,
   validateOrderExists,
@@ -20,6 +20,7 @@ import {
   checkPriceOutlier,
   requiresHumanConfirmation,
 } from "../mcp_tools";
+import { Storage } from "../utils/storage";
 
 /**
  * ==========================================
@@ -40,6 +41,21 @@ export class ValidationAgent extends BaseAgent {
     super({
       name: "validation_agent",
     });
+  }
+
+  /**
+   * ==========================================
+   * Required BaseAgent Implementation
+   * ==========================================
+   */
+  async *runAsyncImpl(ctx: InvocationContext): AsyncGenerator<any, void, void> {
+    const result = await this.run(ctx);
+    yield result;
+  }
+
+  async *runLiveImpl(ctx: InvocationContext): AsyncGenerator<any, void, void> {
+    const result = await this.run(ctx);
+    yield result;
   }
 
   /**
@@ -78,6 +94,21 @@ export class ValidationAgent extends BaseAgent {
 
     // Validate based on intent
     switch (intent) {
+      case "LIST_PRODUCTS":
+      case "LIST_ORDERS":
+      case "LIST_PROMOTIONS":
+      case "SHOW_PRODUCT_INFO":
+      case "SHOW_ORDER_INFO":
+        // Read-only operations - always valid, no validation needed
+        return {
+          valid: true,
+          riskFlag: null,
+          errors: [],
+          entityExists: true,
+          businessRulesPassed: true,
+          requiresConfirmation: false,
+        };
+
       case "UPDATE_PRODUCT_PRICE":
         return await this.validatePriceUpdate(entities, result);
 
@@ -118,13 +149,21 @@ export class ValidationAgent extends BaseAgent {
       return result;
     }
 
-    const skuValidation = await validateSkuExists(sku);
-    if (!skuValidation.valid) {
+    // Load products data
+    const productsStorage = new Storage<any>("products");
+    const products = productsStorage.getAll();
+    const skuValidation = validateSkuExists(sku, products);
+    if (!skuValidation.isValid) {
       result.valid = false;
-      result.errors.push(skuValidation.error || "SKU not found");
+      result.errors.push(...skuValidation.errors);
       result.entityExists = false;
       return result;
     }
+
+    // Find the product for price comparison
+    const product = products.find((p: any) => 
+      p.variants && p.variants.some((v: any) => v.sku === sku)
+    );
 
     // Check price is valid
     if (newPrice === undefined || newPrice === null) {
@@ -137,23 +176,22 @@ export class ValidationAgent extends BaseAgent {
     const priceValidation = validatePrice(newPrice);
     if (!priceValidation.valid) {
       result.valid = false;
-      result.errors.push(priceValidation.error || "Invalid price");
+      result.errors.push(...priceValidation.errors);
       result.businessRulesPassed = false;
       return result;
     }
 
     // Check product is active
-    const activeValidation = await validateProductActive(sku);
-    if (!activeValidation.valid) {
+    if (product && !product.isActive) {
       result.valid = false;
-      result.errors.push(activeValidation.error || "Product is not active");
+      result.errors.push("Product is not active");
       result.businessRulesPassed = false;
       return result;
     }
 
     // Get current price and check price outlier
-    const product = skuValidation.product;
-    const oldPrice = product.variants?.[0]?.price || 0;
+    const variant = product?.variants?.find((v: any) => v.sku === sku);
+    const oldPrice = variant?.price || 0;
 
     const priceOutlierCheck = checkPriceOutlier(oldPrice, newPrice);
     if (priceOutlierCheck.isOutlier) {
@@ -165,7 +203,7 @@ export class ValidationAgent extends BaseAgent {
     }
 
     // Check price vs cost
-    const costPrice = product.variants?.[0]?.costPrice || 0;
+    const costPrice = variant?.costPrice || 0;
     if (newPrice < costPrice) {
       result.errors.push(`Warning: New price ($${newPrice}) is below cost price ($${costPrice})`);
     }
@@ -188,18 +226,30 @@ export class ValidationAgent extends BaseAgent {
       return result;
     }
 
-    const orderValidation = await validateOrderExists(orderNumber);
-    if (!orderValidation.valid) {
+    // Load orders data
+    const ordersStorage = new Storage<any>("orders");
+    const orders = ordersStorage.getAll();
+    const orderValidation = validateOrderExists(orderNumber, orders);
+    if (!orderValidation.isValid) {
       result.valid = false;
-      result.errors.push(orderValidation.error || "Order not found");
+      result.errors.push(...orderValidation.errors);
       result.entityExists = false;
       return result;
     }
 
-    const cancellationValidation = validateOrderCancellation(orderValidation.order);
+    // Find the order
+    const order = orders.find((o: any) => o.orderNumber === orderNumber);
+    if (!order) {
+      result.valid = false;
+      result.errors.push("Order not found");
+      result.entityExists = false;
+      return result;
+    }
+
+    const cancellationValidation = validateOrderCancellation(order);
     if (!cancellationValidation.valid) {
       result.valid = false;
-      result.errors.push(cancellationValidation.error || "Cannot cancel this order");
+      result.errors.push(...cancellationValidation.errors);
       result.businessRulesPassed = false;
       return result;
     }
@@ -229,18 +279,30 @@ export class ValidationAgent extends BaseAgent {
       return result;
     }
 
-    const orderValidation = await validateOrderExists(orderNumber);
-    if (!orderValidation.valid) {
+    // Load orders data
+    const ordersStorage = new Storage<any>("orders");
+    const orders = ordersStorage.getAll();
+    const orderValidation = validateOrderExists(orderNumber, orders);
+    if (!orderValidation.isValid) {
       result.valid = false;
-      result.errors.push(orderValidation.error || "Order not found");
+      result.errors.push(...orderValidation.errors);
       result.entityExists = false;
       return result;
     }
 
-    const transitionValidation = validateStatusTransition(orderValidation.order.status, status);
+    // Find the order
+    const order = orders.find((o: any) => o.orderNumber === orderNumber);
+    if (!order) {
+      result.valid = false;
+      result.errors.push("Order not found");
+      result.entityExists = false;
+      return result;
+    }
+
+    const transitionValidation = validateStatusTransition(order.status, status);
     if (!transitionValidation.valid) {
       result.valid = false;
-      result.errors.push(transitionValidation.error || "Invalid status transition");
+      result.errors.push(...transitionValidation.errors);
       result.businessRulesPassed = false;
       return result;
     }
@@ -263,10 +325,13 @@ export class ValidationAgent extends BaseAgent {
       return result;
     }
 
-    const skuValidation = await validateSkuExists(sku);
-    if (!skuValidation.valid) {
+    // Load products data
+    const productsStorage = new Storage<any>("products");
+    const products = productsStorage.getAll();
+    const skuValidation = validateSkuExists(sku, products);
+    if (!skuValidation.isValid) {
       result.valid = false;
-      result.errors.push(skuValidation.error || "SKU not found");
+      result.errors.push(...skuValidation.errors);
       result.entityExists = false;
       return result;
     }

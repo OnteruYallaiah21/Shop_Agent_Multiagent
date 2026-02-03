@@ -38,6 +38,7 @@ export interface UniversalState {
     response: ResponseState | null;
     pendingAction: PendingAction | null;
     conversationSummary: string | null;
+    toolResults?: Array<{ name: string; response: any }>; // Tool results from PlannerAgent
   };
 }
 
@@ -179,7 +180,7 @@ export function createInitialState(
         contextUsagePct: 0,
         latencyMs: null,
         retryCount: 0,
-        model: "qwen3-coder:30b",
+        model: process.env.OLLAMA_MODEL || "qwen3-coder:30b",
       },
       api: {
         apiLatencyMs: null,
@@ -199,6 +200,7 @@ export function createInitialState(
       response: null,
       pendingAction: null,
       conversationSummary: null,
+      toolResults: [], // Initialize empty array for tool results
     },
   };
 }

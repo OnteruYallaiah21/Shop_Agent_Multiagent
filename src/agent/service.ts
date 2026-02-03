@@ -52,7 +52,11 @@ export class AgentService {
   async handleChatRequest(message: string, sessionId: string): Promise<any> {
     try {
       // Get or create session
-      let session = await this.sessionService.getSession(sessionId);
+      let session = await this.sessionService.getSession({
+        appName: "shop_agent",
+        userId: "admin",
+        sessionId,
+      });
       if (!session) {
         session = await this.sessionService.createSession({
           appName: "shop_agent",
@@ -91,10 +95,36 @@ export class AgentService {
         universalState: result.universalState,
       };
     } catch (error: any) {
-      console.error("Error handling chat request:", error);
+      console.error("[AgentService] Error handling chat request:", error);
+      
+      // Provide helpful error messages
+      let errorMessage = error.message || "An unexpected error occurred";
+      const errorStr = String(error.message || error).toLowerCase();
+      
+      // Check if it's an API key error (catch various error message formats)
+      if (errorStr.includes("api key") || 
+          errorStr.includes("groq_api_key") || 
+          errorStr.includes("gemini_api_key") ||
+          errorStr.includes("google_genai_api_key") ||
+          errorStr.includes("no llm provider") ||
+          errorStr.includes("both groq and gemini failed") ||
+          errorStr.includes("gemini failed and groq is not available")) {
+        errorMessage = `🔑 **API Key Required**\n\n` +
+          `StorePilot needs an LLM API key to work.\n\n` +
+          `**Quick Setup (Groq - Free tier):**\n` +
+          `1. Get key: https://console.groq.com/keys\n` +
+          `2. Terminal: export GROQ_API_KEY=your_key\n` +
+          `3. Restart: npm run dev\n\n` +
+          `**Or Gemini:**\n` +
+          `1. Get key: https://aistudio.google.com/apikey\n` +
+          `2. Terminal: export GEMINI_API_KEY=your_key\n` +
+          `3. Restart: npm run dev`;
+      }
+      
       return {
-        message: `Error: ${error.message}`,
+        message: errorMessage,
         requiresConfirmation: false,
+        error: true,
       };
     }
   }
@@ -110,7 +140,11 @@ export class AgentService {
   async handleConfirmation(workflowId: string, sessionId: string, confirmed: boolean): Promise<any> {
     try {
       // Get session
-      const session = await this.sessionService.getSession(sessionId);
+      const session = await this.sessionService.getSession({
+        appName: "shop_agent",
+        userId: "admin",
+        sessionId,
+      });
       if (!session) {
         throw new Error("Session not found");
       }
